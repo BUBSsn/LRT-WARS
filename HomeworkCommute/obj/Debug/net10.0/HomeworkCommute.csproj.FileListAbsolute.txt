@@ -1,0 +1,14 @@
+/Users/antwone/game-jam/HomeworkCommute/bin/Debug/net10.0/HomeworkCommute
+/Users/antwone/game-jam/HomeworkCommute/bin/Debug/net10.0/HomeworkCommute.deps.json
+/Users/antwone/game-jam/HomeworkCommute/bin/Debug/net10.0/HomeworkCommute.runtimeconfig.json
+/Users/antwone/game-jam/HomeworkCommute/bin/Debug/net10.0/HomeworkCommute.dll
+/Users/antwone/game-jam/HomeworkCommute/bin/Debug/net10.0/HomeworkCommute.pdb
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.GeneratedMSBuildEditorConfig.editorconfig
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.AssemblyInfoInputs.cache
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.AssemblyInfo.cs
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.csproj.CoreCompileInputs.cache
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.dll
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/refint/HomeworkCommute.dll
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.pdb
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.genruntimeconfig.cache
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/ref/HomeworkCommute.dll
