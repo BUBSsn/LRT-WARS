@@ -5,64 +5,78 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
+public enum Perspective
+{
+    PLATFORM,
+    UNDER_STATION,
+    INSIDE_CARS
+}
+
 public partial class HomeworkWorkspace : Node2D
 {
-    // Global Tycoon Metrics
-    private float _commuterRage = 0.0f;       // 0.0 to 100.0
-    private float _dailyBudget = 5000.0f;     // Starts at 5000.0
-    private float _platformDensity = 2.0f;    // Crowd Congestion index
-
-    // Upgrades and toggles
-    private bool _turnstileGated = false;
-    private int _securityGuards = 0;
-    private int _ventilationLevel = 0;
-    private int _passengersServed = 0;
-
-    // Simulation status flags
+    // Core game state matching simulation values
+    private Perspective _activePerspective = Perspective.PLATFORM;
+    private float _globalCommuterRage = 0.0f;
+    private float _dailyBudget = 5000.0f;
     private bool _riotErupted = false;
-    private bool _dayCompleted = false;
     private bool _isRunning = true;
 
-    // Shift clocks
-    private float _timeRemaining = 120.0f;    // 2-minute day shift
-    private float _trainTimer = 10.0f;        // Automatic train arrivals
-    private float _trainX = -600.0f;          // Train horizontal offset
-    private bool _trainArrived = false;
+    // Platform Metrics
+    private float _trainDelayTimer = 0.0f;
+    private int _pickpocketCount = 0;
+    private float _priorityQueueViolationRate = 0.05f;
 
-    // Baseline coordinates for shaking effects
+    // Under-Station Metrics
+    private int _ticketMachineFailures = 0;
+    private float _escalatorWeightStrain = 10.0f;
+
+    // Inside-Cars Metrics
+    private float _carCrowdDensity = 2.0f;
+    private float _acFailureChance = 0.05f;
+    private bool _acFailed = false;
+
+    // Window coordinate shakes
     private Vector2 _originalPosition;
     private Vector2 _screenOffset = Vector2.Zero;
     private int _frameCount = 0;
 
-    // Active notification banner details
-    private string _notificationText = "SHIFT COMMENCING! MONITOR METRIC STATIONS UNDER OVERLOAD.";
+    // HUD Notifications
+    private string _notificationText = "SWAP VIEW CHANNELS USING HOTKEYS 1, 2, or 3.";
     private Color _notificationBg = Colors.DarkSlateGray;
-    private int _notificationTicksRemaining = 60; // 2 seconds
+    private int _notificationTicks = 60;
 
-    // Thread Timers & Fonts
+    // Loop timer
     private System.Threading.Timer? _gameTimer;
     private SystemFont? _font;
 
-    // Commuter visual coordinates cache (anchors passengers between draws)
+    // Cache of passenger coordinates wiggles
     private readonly List<Vector2> _commuterCoordinates = new List<Vector2>();
-    private readonly Random _random = new Random(256);
+    private readonly List<Vector2> _underStationPeople = new List<Vector2>();
+    private readonly Random _random = new Random(512);
 
     public override void _Ready()
     {
-        // Save initial pos for shake snapbacks
         _originalPosition = Position;
 
-        // Load default SystemFont for canvas rendering
+        // Default fonts properties
         SystemFont fontObj = new SystemFont();
         fontObj.FontNames = new string[] { "sans-serif", "Segoe UI", "Arial" };
         _font = fontObj;
 
         // Generate stationary commuter coordinate positions
-        for (int i = 0; i < 200; i++)
+        for (int i = 0; i < 150; i++)
         {
-            float rx = (float)(_random.NextDouble() * 0.82 + 0.06); // scale across platform width
-            float ry = (float)(_random.NextDouble() * 0.22 + 0.24); // scale across platform depth (horizon matches 0.24 to 0.46)
+            float rx = (float)(_random.NextDouble() * 0.8 + 0.1);
+            float ry = (float)(_random.NextDouble() * 0.2 + 0.28);
             _commuterCoordinates.Add(new Vector2(rx, ry));
+        }
+
+        // Generate concourse commuters
+        for (int i = 0; i < 40; i++)
+        {
+            float rx = (float)(_random.NextDouble() * 0.4 + 0.05);
+            float ry = (float)(_random.NextDouble() * 0.15 + 0.35);
+            _underStationPeople.Add(new Vector2(rx, ry));
         }
 
         InitializeGame();
@@ -70,28 +84,29 @@ public partial class HomeworkWorkspace : Node2D
 
     private void InitializeGame()
     {
-        _commuterRage = 0.0f;
+        _globalCommuterRage = 0.0f;
         _dailyBudget = 5000.0f;
-        _platformDensity = 2.0f;
-        _turnstileGated = false;
-        _securityGuards = 0;
-        _ventilationLevel = 0;
-        _passengersServed = 0;
+        _activePerspective = Perspective.PLATFORM;
         _riotErupted = false;
-        _dayCompleted = false;
 
-        _timeRemaining = 120.0f;
-        _trainTimer = 10.0f;
-        _trainX = -650.0f;
-        _trainArrived = false;
+        _trainDelayTimer = 0.0f;
+        _pickpocketCount = 0;
+        _priorityQueueViolationRate = 0.05f;
+
+        _ticketMachineFailures = 0;
+        _escalatorWeightStrain = 10.0f;
+
+        _carCrowdDensity = 2.0f;
+        _acFailureChance = 0.05f;
+        _acFailed = false;
+
         _screenOffset = Vector2.Zero;
         Position = _originalPosition;
 
-        _notificationText = "HUD CONTROL ONLINE - MONITOR CROWD INTENSITIES";
+        _notificationText = "METRIC SWITCHBOARD ONLINE! REDUCE PEAK STATIONS TENSIONS.";
         _notificationBg = Colors.DarkCyan;
-        _notificationTicksRemaining = 60;
+        _notificationTicks = 90;
 
-        // Core Game Loop: running on a standard thread timer at 30 FPS
         _gameTimer?.Dispose();
         _gameTimer = new System.Threading.Timer(OnTimerTick, null, 0, 33);
     }
@@ -99,22 +114,16 @@ public partial class HomeworkWorkspace : Node2D
     private void OnTimerTick(object? state)
     {
         if (!_isRunning) return;
-
-        // Synchronize thread ticker back to Godot's safe execution thread
-        CallDeferred(nameof(GameUpdateTick));
+        CallDeferred(nameof(GameUpdateStep));
     }
 
-    private void GameUpdateTick()
+    private void GameUpdateStep()
     {
-        if (_riotErupted || _dayCompleted)
+        if (_riotErupted)
         {
-            if (_riotErupted)
-            {
-                // Violent shake coordinates for Riot Eruptions
-                Random rng = new Random();
-                _screenOffset = new Vector2(rng.Next(-5, 6), rng.Next(-3, 4));
-                Position = _originalPosition + _screenOffset;
-            }
+            Random rng = new Random();
+            _screenOffset = new Vector2(rng.Next(-5, 6), rng.Next(-3, 4));
+            Position = _originalPosition + _screenOffset;
             QueueRedraw();
             return;
         }
@@ -122,103 +131,80 @@ public partial class HomeworkWorkspace : Node2D
         _frameCount++;
         float deltaTime = 1.0f / 30.0f;
 
-        // Shift clock depletion
-        _timeRemaining -= deltaTime;
-        if (_timeRemaining <= 0)
+        // 1. Platform updates
+        _trainDelayTimer += deltaTime;
+        if (_frameCount % 180 == 0 && _pickpocketCount < 10)
         {
-            _timeRemaining = 0;
-            _dayCompleted = true;
+            _pickpocketCount++;
+        }
+        _priorityQueueViolationRate = Math.Min(1.0f, _priorityQueueViolationRate + 0.015f * deltaTime);
+
+        // 2. Under-Station Updates
+        if (_frameCount % 270 == 0 && _ticketMachineFailures < 4)
+        {
+            _ticketMachineFailures++;
+        }
+        _escalatorWeightStrain = Math.Min(100.0f, _escalatorWeightStrain + (2.2f + _ticketMachineFailures * 1.8f) * deltaTime);
+
+        // 3. Inside-Cars Updates
+        _carCrowdDensity = Math.Min(10.0f, _carCrowdDensity + 0.18f * deltaTime);
+        _acFailureChance = Math.Min(1.0f, _acFailureChance + 0.022f * _carCrowdDensity * deltaTime);
+        if (!_acFailed && _acFailureChance > 0.6f && _random.NextDouble() < 0.006f)
+        {
+            _acFailed = true;
+            FlashNotification("💥 ALERT: TRAIN COMPRESSOR OVERLOAD TRIP!", Colors.Crimson);
         }
 
-        // Passive commuter influx
-        float arrivalRate = _turnstileGated ? 0.35f : 0.85f;
-        _platformDensity += arrivalRate * deltaTime;
-        if (_platformDensity > 10.0f) _platformDensity = 10.0f;
+        // --- EXPONENTIAL RAGE METRICS ADDITIONS ---
+        float rageAddition = 0.0f;
 
-        // Passive Rage calculation (PlatformDensity > 4.5 comfort threshold)
-        if (_platformDensity > 4.5f)
+        if (_trainDelayTimer > 15.0f)
         {
-            float excess = _platformDensity - 4.5f;
-            float ventCooling = 1.0f / (1.0f + _ventilationLevel * 0.4f);
-            
-            _commuterRage += excess * 1.6f * ventCooling * deltaTime;
+            float excess = _trainDelayTimer - 15.0f;
+            rageAddition += Mathf.Exp(excess * 0.15f) * 0.35f * deltaTime;
         }
-        else
+        if (_escalatorWeightStrain > 75.0f)
         {
-            // Passive cooldown when density is low
-            _commuterRage = Math.Max(0.0f, _commuterRage - 1.5f * deltaTime);
+            float excess = _escalatorWeightStrain - 75.0f;
+            rageAddition += Mathf.Exp(excess * 0.09f) * 0.45f * deltaTime;
         }
-
-        // Turnstiles gated increases rage due to road frustration outside
-        if (_turnstileGated)
+        if (_carCrowdDensity > 8.0f)
         {
-            _commuterRage += 0.5f * deltaTime;
+            float excess = _carCrowdDensity - 8.0f;
+            rageAddition += Mathf.Exp(excess * 0.5f) * 0.65f * deltaTime;
         }
 
-        // Security guards active mitigation factor
-        if (_securityGuards > 0)
+        // flat modifiers
+        rageAddition += _pickpocketCount * 0.25f * deltaTime;
+        rageAddition += _ticketMachineFailures * 0.4f * deltaTime;
+        if (_acFailed)
         {
-            _commuterRage = Math.Max(0.0f, _commuterRage - (0.4f * _securityGuards * deltaTime));
+            rageAddition += 8.0f * deltaTime;
         }
 
-        // Clamp Rage
-        if (_commuterRage > 100.0f) _commuterRage = 100.0f;
+        _globalCommuterRage += rageAddition;
 
-        // Trigger Game Over loss threshold
-        if (_commuterRage >= 100.0f)
+        // cooling down
+        if (_trainDelayTimer <= 15.0f && _escalatorWeightStrain <= 75.0f && _carCrowdDensity <= 8.0f && !_acFailed)
+        {
+            _globalCommuterRage = Math.Max(0.0f, _globalCommuterRage - 1.5f * deltaTime);
+        }
+
+        if (_globalCommuterRage > 100.0f) _globalCommuterRage = 100.0f;
+        if (_globalCommuterRage >= 100.0f)
         {
             _riotErupted = true;
         }
 
-        // Daily Operating cost deductions
-        float operatingCost = 15.0f + (_securityGuards * 4.0f) + (_ventilationLevel * 5.0f);
+        // Budget operational costs
+        float operatingCost = 8.0f + (_ticketMachineFailures * 3.0f);
         _dailyBudget = Math.Max(0.0f, _dailyBudget - operatingCost * deltaTime);
 
-        // Train Arrival Simulation
-        _trainTimer -= deltaTime;
-        if (_trainTimer <= 0)
-        {
-            _trainTimer = 12.0f;
-            _trainArrived = true;
-            _trainX = -650.0f; // Slide from left
-
-            // Compute passenger clearing
-            float boarders = Math.Min(_platformDensity, 4.0f);
-            _platformDensity = Math.Max(0.0f, _platformDensity - boarders);
-
-            // Ticking revenues
-            int boardsCount = (int)(boarders * 18);
-            _passengersServed += boardsCount;
-            _dailyBudget += boardsCount * 12.50f;
-        }
-
-        // Train sliding coordinates updates
-        if (_trainArrived)
-        {
-            if (_trainX < 0)
-            {
-                _trainX += 800.0f * deltaTime;
-                if (_trainX > 0) _trainX = 0;
-            }
-            else
-            {
-                if (_trainTimer < 8.0f)
-                {
-                    _trainX += 900.0f * deltaTime;
-                    if (_trainX > 850.0f)
-                    {
-                        _trainArrived = false;
-                    }
-                }
-            }
-        }
-
-        // Visual overcrowding screen shakes (> 7.0 platform density)
-        if (_platformDensity > 7.0f)
+        // Screen shakes when density is high
+        if (_carCrowdDensity > 8.0f || _escalatorWeightStrain > 85.0f)
         {
             Random rng = new Random();
-            float force = (_platformDensity - 7.0f) * 1.5f;
-            _screenOffset = new Vector2(rng.Next((int)-force, (int)force + 1), rng.Next((int)-force, (int)force + 1));
+            _screenOffset = new Vector2(rng.Next(-2, 3), rng.Next(-1, 2));
             Position = _originalPosition + _screenOffset;
         }
         else
@@ -227,13 +213,13 @@ public partial class HomeworkWorkspace : Node2D
             Position = _originalPosition;
         }
 
-        // Clear active notification durations
-        if (_notificationTicksRemaining > 0)
+        // Notifications tickers
+        if (_notificationTicks > 0)
         {
-            _notificationTicksRemaining--;
-            if (_notificationTicksRemaining <= 0)
+            _notificationTicks--;
+            if (_notificationTicks <= 0)
             {
-                _notificationText = "MONITOR EDSA CHOKE POINTS AND DEPLOY TRAIN SERVICE.";
+                _notificationText = "HOTKEYS: [1] Platform View   |   [2] Under-Station View   |   [3] Inside-Cars View";
                 _notificationBg = Colors.DarkSlateGray;
             }
         }
@@ -245,7 +231,7 @@ public partial class HomeworkWorkspace : Node2D
     {
         if (@event is InputEventKey keyEvent && keyEvent.Pressed)
         {
-            if (_riotErupted || _dayCompleted)
+            if (_riotErupted)
             {
                 if (keyEvent.Keycode == Key.R)
                 {
@@ -254,74 +240,79 @@ public partial class HomeworkWorkspace : Node2D
                 return;
             }
 
-            switch (keyEvent.Keycode)
+            // Keyboard perspective swappers
+            if (keyEvent.Keycode == Key.Key1 || keyEvent.Keycode == Key.Kp1)
             {
-                case Key.Key1:
-                case Key.Kp1:
-                    // Deploy Extra Train
-                    if (_dailyBudget >= 400.0f)
+                _activePerspective = Perspective.PLATFORM;
+                FlashNotification("ACTIVE CAMERA: PLATFORM DECK MONITOR 1", Colors.DarkBlue);
+                return;
+            }
+            if (keyEvent.Keycode == Key.Key2 || keyEvent.Keycode == Key.Kp2)
+            {
+                _activePerspective = Perspective.UNDER_STATION;
+                FlashNotification("ACTIVE CAMERA: UNDER-STATION CONCOURSE 2", Colors.DarkGoldenrod);
+                return;
+            }
+            if (keyEvent.Keycode == Key.Key3 || keyEvent.Keycode == Key.Kp3)
+            {
+                _activePerspective = Perspective.INSIDE_CARS;
+                FlashNotification("ACTIVE CAMERA: METRO CARRIAGE DECK 3", Colors.DarkSlateBlue);
+                return;
+            }
+
+            // Viewport local action controls
+            switch (_activePerspective)
+            {
+                case Perspective.PLATFORM:
+                    if (keyEvent.Keycode == Key.D)
                     {
-                        _dailyBudget -= 400.0f;
-                        _trainTimer = 0.5f; // Force train arrival
-                        FlashNotification("EXTRA SERVICE TRAIN DIPATCHED! (-$400)", Colors.DarkGreen);
+                        _trainDelayTimer = 0.0f;
+                        _carCrowdDensity = Math.Min(10.0f, _carCrowdDensity + 2.0f);
+                        _dailyBudget = Math.Max(0.0f, _dailyBudget - 100.0f);
+                        FlashNotification("EXPRESS MRT DEPLOYED! DELAY RESET (-$100)", Colors.DarkGreen);
                     }
-                    else
+                    else if (keyEvent.Keycode == Key.P)
                     {
-                        FlashNotification("ERR: INSUFFICIENT BUDGET TO ACCELERATE TRAIN!", Colors.DarkRed);
+                        if (_pickpocketCount > 0)
+                        {
+                            _pickpocketCount--;
+                            _dailyBudget = Math.Max(0.0f, _dailyBudget - 50.0f);
+                            FlashNotification("SECURITY APPREHENDED PICKPOCKET (-$50)", Colors.DarkGreen);
+                        }
+                    }
+                    else if (keyEvent.Keycode == Key.Q)
+                    {
+                        _priorityQueueViolationRate = Math.Max(0.0f, _priorityQueueViolationRate - 0.15f);
+                        _dailyBudget = Math.Max(0.0f, _dailyBudget - 30.0f);
+                        FlashNotification("ENFORCED PRIORITY BOARDINGS (-$30)", Colors.DarkGreen);
                     }
                     break;
 
-                case Key.Key2:
-                case Key.Kp2:
-                    // Hire Custom Guards
-                    if (_dailyBudget >= 180.0f)
+                case Perspective.UNDER_STATION:
+                    if (keyEvent.Keycode == Key.F)
                     {
-                        _dailyBudget -= 180.0f;
-                        _securityGuards++;
-                        _commuterRage = Math.Max(0.0f, _commuterRage - 15.0f);
-                        FlashNotification($"GUARDS ASSIGNED (-$180) • TOTAL SECURITY: {_securityGuards}", Colors.DarkGreen);
+                        if (_ticketMachineFailures > 0)
+                        {
+                            _ticketMachineFailures--;
+                            _dailyBudget = Math.Max(0.0f, _dailyBudget - 120.0f);
+                            FlashNotification("TICKET TERMINAL PARTS REPLACED (-$120)", Colors.DarkGreen);
+                        }
                     }
-                    else
+                    else if (keyEvent.Keycode == Key.S)
                     {
-                        FlashNotification("ERR: INSUSFFICIENT BUDGET TO HIRE OFFICER!", Colors.DarkRed);
-                    }
-                    break;
-
-                case Key.Key3:
-                case Key.Kp3:
-                    // Staff Apology
-                    if (_dailyBudget >= 40.0f)
-                    {
-                        _dailyBudget -= 40.0f;
-                        _commuterRage = Math.Max(0.0f, _commuterRage - 8.0f);
-                        FlashNotification("STAFF DELAY APOLOGY DIRECTED OVER SPEAKER (-$40)", Colors.DarkGoldenrod);
-                    }
-                    else
-                    {
-                        FlashNotification("ERR: INSUFFICIENT BUDGET FOR STAFF BROADCASTS!", Colors.DarkRed);
+                        _escalatorWeightStrain = Math.Max(0.0f, _escalatorWeightStrain - 25.0f);
+                        _dailyBudget = Math.Max(0.0f, _dailyBudget - 40.0f);
+                        FlashNotification("ESCALATOR FORCE SHIFT DOWN (-$40)", Colors.DarkGreen);
                     }
                     break;
 
-                case Key.Key4:
-                case Key.Kp4:
-                    // Toggle Gated Entry
-                    _turnstileGated = !_turnstileGated;
-                    string gateStr = _turnstileGated ? "ENTRY TURNSTILES RESTRICTED (SLOW INFLOW, BUILD QUEUES)" : "ENTRY TURNSTILES RELEASED TO MAX INFLOW";
-                    FlashNotification(gateStr, _turnstileGated ? Colors.DarkGoldenrod : Colors.DarkBlue);
-                    break;
-
-                case Key.Key5:
-                case Key.Kp5:
-                    // Upgrade Station Ventilation
-                    if (_dailyBudget >= 800.0f)
+                case Perspective.INSIDE_CARS:
+                    if (keyEvent.Keycode == Key.A)
                     {
-                        _dailyBudget -= 800.0f;
-                        _ventilationLevel++;
-                        FlashNotification($"VENT SYSTEM UPGRADED (-$800) • LEVEL: {_ventilationLevel}", Colors.DarkGreen);
-                    }
-                    else
-                    {
-                        FlashNotification("ERR: INSUFFICIENT BUDGET FOR INFRASTRUCTURE UPGRADE!", Colors.DarkRed);
+                        _acFailed = false;
+                        _acFailureChance = 0.05f;
+                        _dailyBudget = Math.Max(0.0f, _dailyBudget - 150.0f);
+                        FlashNotification("REPAIRED CAR AC REFRIGERATOR VENT (-$150)", Colors.DarkGreen);
                     }
                     break;
             }
@@ -332,226 +323,300 @@ public partial class HomeworkWorkspace : Node2D
     {
         _notificationText = text;
         _notificationBg = baseColor;
-        _notificationTicksRemaining = 60; // 2 seconds flash
+        _notificationTicks = 60;
         QueueRedraw();
     }
 
     public override void _Draw()
     {
-        Vector2 viewportSize = GetViewportRect().Size;
-        float W = viewportSize.X;
-        float H = viewportSize.Y;
+        Vector2 scaleSize = GetViewportRect().Size;
+        float W = scaleSize.X;
+        float H = scaleSize.Y;
 
         // ==========================================
-        // 1. DRAW PLATFORM DEPTH (Top 62% of Screen)
+        // 1. SPECIFICATION 4: PERSISTENT GLOBAL HUD
         // ==========================================
-        
-        // Floor asphalt
-        DrawRect(new Rect2(0, 0, W, H * 0.62f), Color.Color8(40, 45, 52), true);
+        DrawRect(new Rect2(0, 0, W, H * 0.18f), Color.Color8(18, 20, 24), true);
+        DrawLine(new Vector2(0, H * 0.18f), new Vector2(W, H * 0.18f), Color.Color8(70, 75, 80), 3);
 
-        // Ambient ceiling support column beams
-        float spacing = W / 4f;
-        for (int i = 0; i <= 4; i++)
+        string viewName = _activePerspective switch
         {
-            float beamX = i * spacing;
-            DrawRect(new Rect2(beamX - 15, 0, 30, H * 0.22f), Color.Color8(25, 28, 33), true);
-            DrawRect(new Rect2(beamX - 15, H * 0.22f - 10, 30, 10), Color.Color8(80, 85, 95), true);
+            Perspective.PLATFORM => "PLATFORM CAMERA SCREEN",
+            Perspective.UNDER_STATION => "UNDER-STATION CONCOURSE SCREEN",
+            Perspective.INSIDE_CARS => "TRAIN PASSENGER CARS SCREEN",
+            _ => "SYSTEM PERSPECTIVE"
+        };
+        DrawText($"ACTIVE VIEW: {viewName}   |   Daily Budget: ${_dailyBudget:F2}", 24, 25, 14, Colors.LightGoldenrod);
+
+        // Global Riot meter bar representation
+        DrawText("Global Riot Meter (Rage): ", 24, 55, 12, Colors.LightGray);
+        float barW = 280;
+        float barH = 14;
+        float barX = 220;
+        float barY = 44;
+        DrawRect(new Rect2(barX, barY, barW, barH), Color.Color8(40, 40, 45), true);
+        Color rCol = _globalCommuterRage > 80.0f ? Colors.Crimson : (_globalCommuterRage > 50.0f ? Colors.Gold : Colors.MediumSpringGreen);
+        DrawRect(new Rect2(barX, barY, barW * (_globalCommuterRage / 100.0f), barH), rCol, true);
+        DrawText($"{_globalCommuterRage:F1}%", barX + barW + 15, 55, 13, rCol);
+
+        // ==========================================
+        // 2. SPECIFICATION 4: DYNAMIC VIEWPORT CANVAS
+        // ==========================================
+        float viewY = H * 0.18f + 3;
+        float viewH = H * 0.72f - 6;
+
+        switch (_activePerspective)
+        {
+            case Perspective.PLATFORM:
+                DrawPlatformGraphics(0, viewY, W, viewH);
+                break;
+            case Perspective.UNDER_STATION:
+                DrawUnderStationGraphics(0, viewY, W, viewH);
+                break;
+            case Perspective.INSIDE_CARS:
+                DrawInsideCarsGraphics(0, viewY, W, viewH);
+                break;
         }
 
-        // MRT Tracks horizontal overlay
-        float trackY = H * 0.22f;
-        DrawRect(new Rect2(0, trackY, W, 22), Color.Color8(20, 20, 20), true);
-        DrawLine(new Vector2(0, trackY + 3), new Vector2(W, trackY + 3), Color.Color8(120, 125, 130), 2);
-        DrawLine(new Vector2(0, trackY + 19), new Vector2(W, trackY + 19), Color.Color8(120, 125, 130), 2);
-        
-        // Track sleepers (wooden ties)
-        for (float sx = 0; sx < W; sx += 40)
+        // Bottom Operations Notification Banner
+        float bannerY = H - 32;
+        DrawRect(new Rect2(0, bannerY, W, 32), _notificationBg, true);
+        DrawText(_notificationText, W / 2, bannerY + 20, 11, Colors.White, HorizontalAlignment.Center);
+
+        // Win/Loss overlay (Specification 3)
+        if (_riotErupted)
         {
-            DrawRect(new Rect2(sx + 15, trackY + 3, 10, 16), Color.Color8(75, 50, 35), true);
+            DrawRect(new Rect2(0, 0, W, H), Color.Color8(0, 0, 0, 170), true);
+
+            float panelW = 680f;
+            float panelH = 220f;
+            Vector2 pTL = new Vector2(W/2 - panelW/2, H/2 - panelH/2);
+
+            DrawRect(new Rect2(pTL.X, pTL.Y, panelW, panelH), Colors.DarkRed, true);
+            DrawRect(new Rect2(pTL.X, pTL.Y, panelW, panelH), Colors.Gold, false, 4f);
+
+            DrawText("👮 !!! STATION RIOT TRIGGERED! YOU ARE FIRED. !!! 👮", W/2, pTL.Y + 45, 23, Colors.Yellow, HorizontalAlignment.Center);
+            DrawText("Metro rage index hit 100% capacity threshold. Controls collapsed.", W/2, pTL.Y + 95, 15, Colors.White, HorizontalAlignment.Center);
+            DrawText("Your operations shift coordinator contract was terminated instantly.", W/2, pTL.Y + 125, 13, Colors.LightGray, HorizontalAlignment.Center);
+            DrawText("Press [ R ] to restart shift metrics", W/2, pTL.Y + 180, 15, Colors.Yellow, HorizontalAlignment.Center);
+        }
+    }
+
+    private void DrawPlatformGraphics(float x, float y, float w, float h)
+    {
+        // Paint gray concrete platform area
+        DrawRect(new Rect2(x, y, w, h), Color.Color8(50, 55, 62), true);
+        DrawRect(new Rect2(x, y, w, h), Color.Color8(120, 125, 130), false, 4f);
+
+        // Ceiling Column Beams
+        float step = w / 4.0f;
+        for (int i = 1; i < 4; i++)
+        {
+            float beamX = x + i * step;
+            DrawRect(new Rect2(beamX - 10, y + 2, 20, 48), Color.Color8(30, 32, 38), true);
+            DrawRect(new Rect2(beamX - 10, y + 50, 20, 5), Color.Color8(90, 95, 100), true);
         }
 
-        // Platform yellow safety warning edge line
-        float platEdgeY = trackY + 23;
-        Color edgeColor = _platformDensity > 7.0f ? Colors.Red : Colors.Orange;
-        DrawRect(new Rect2(0, platEdgeY, W, 8), edgeColor, true);
-
-        // Animated arrivals of the MRT train
-        if (_trainArrived)
+        // Draw railway tracks
+        float trackY = y + 75;
+        DrawRect(new Rect2(x, trackY, w, 24), Color.Color8(18, 18, 18), true);
+        DrawLine(new Vector2(x, trackY + 4), new Vector2(x + w, trackY + 4), Color.Color8(110, 115, 120), 2);
+        DrawLine(new Vector2(x, trackY + 20), new Vector2(x + w, trackY + 20), Color.Color8(110, 115, 120), 2);
+        // Sleepers
+        for (float sx = x + 15; sx < x + w - 10; sx += 45)
         {
-            float trW = 750.0f;
-            float trH = 80.0f;
-            Vector2 trTL = new Vector2(W / 2 - trW / 2 + _trainX, trackY - 45);
+            DrawRect(new Rect2(sx, trackY + 4, 10, 16), Color.Color8(72, 50, 36), true);
+        }
 
-            // Main body
-            DrawRect(new Rect2(trTL.X, trTL.Y, trW, trH), Color.Color8(0, 102, 204), true); // Cyan Blue
-            DrawRect(new Rect2(trTL.X, trTL.Y, trW, trH), Color.Color8(220, 220, 220), false, 4f); // border
-            DrawRect(new Rect2(trTL.X, trTL.Y + 20, trW, 10), Colors.Yellow, true); // Yellow stripe
+        // Yellow caution safety border line
+        float cautionY = trackY + 26;
+        for (float cx = x; cx < x + w; cx += 25)
+        {
+            DrawRect(new Rect2(cx, cautionY, 15, 6), Colors.Yellow, true);
+        }
 
-            // Cab Windows
-            for (int k = 0; k < 6; k++)
+        // Render arriving train silhouette based on frame timers
+        float trainOffset = (_frameCount * 3) % (w + 400) - 200;
+        float trW = 400;
+        float trH = 50;
+        DrawRect(new Rect2(x + trainOffset, trackY - 15, trW, trH), Color.Color8(0, 80, 180), true);
+        DrawRect(new Rect2(x + trainOffset, trackY - 15, trW, trH), Colors.White, false, 2f);
+        // Train Cab shield
+        DrawRect(new Rect2(x + trainOffset + trW - 35, trackY - 8, 30, 22), Color.Color8(20, 20, 20), true);
+        // Windows
+        for (int k = 0; k < 3; k++)
+        {
+            DrawRect(new Rect2(x + trainOffset + 30 + k * 110, trackY - 8, 55, 16), Color.Color8(33, 33, 33), true);
+        }
+
+        // Display commuters circles wiggling w/ comfort bounds check
+        int passCount = Math.Min(120, (int)(_trainDelayTimer * 1.8f) + 12);
+        for (int i = 0; i < passCount && i < _commuterCoordinates.Count; i++)
+        {
+            Vector2 pct = _commuterCoordinates[i];
+            float px = pct.X * w;
+            float py = y + (pct.Y - 0.28f) * h + 38; // clamp on platform deck
+
+            float wx = Mathf.Sin(_frameCount * 0.1f + i) * 2f;
+            float wy = Mathf.Cos(_frameCount * 0.08f + i) * 1.5f;
+
+            Color col = _priorityQueueViolationRate > 0.4f ? Colors.Tomato : Colors.LightGreen;
+            DrawCircle(new Vector2(px + wx, py + wy), 5f, col);
+            DrawCircle(new Vector2(px + wx, py + wy - 8), 3f, Color.Color8(230, 200, 185)); // head
+        }
+
+        // UI text overlays inside Viewport Canvas
+        DrawText("CAMERA DECK 01 - METRIC STATS:", x + 25, y + 25, 13, Colors.Yellow);
+        
+        Color dColor = _trainDelayTimer > 15.0f ? Colors.Crimson : Colors.LightGreen;
+        DrawText($"Train Delay Timer  : {_trainDelayTimer:F1}s (Threshold: 15.0s)", x + 25, y + 50, 12, dColor);
+        DrawText($"Pickpocket Count   : {_pickpocketCount} active thieves report", x + 25, y + 70, 12, _pickpocketCount > 3 ? Colors.Gold : Colors.White);
+        DrawText($"Priority Line Viol : {(_priorityQueueViolationRate * 100f):F1}% rate", x + 25, y + 90, 12, _priorityQueueViolationRate > 0.4f ? Colors.Orange : Colors.White);
+
+        // Control HUD text row
+        DrawText("HOTKEYS: [D] Dispatch Train (-$100)  |  [P] Bust Thief (-$50)  |  [Q] Check Queue (-$30)", x + 20, y + h - 22, 11, Colors.LightSkyBlue);
+    }
+
+    private void DrawUnderStationGraphics(float x, float y, float w, float h)
+    {
+        // Underground concrete lobby (Dark Cyan panel)
+        DrawRect(new Rect2(x, y, w, h), Color.Color8(30, 52, 60), true);
+        DrawRect(new Rect2(x, y, w, h), Color.Color8(80, 160, 180), false, 4f);
+
+        // Columns
+        for (int dx = 120; dx < w - 50; dx += 260)
+        {
+            DrawRect(new Rect2(dx, y + 10, 48, h - 20), Color.Color8(22, 38, 44), true);
+        }
+
+        // Draw Ticket Vending Cabinets
+        float tvmStartY = y + 45;
+        for (int k = 0; k < 4; k++)
+        {
+            float tvmX = x + 35 + (k * 105);
+            DrawRect(new Rect2(tvmX, tvmStartY, 72, 100), Color.Color8(12, 15, 20), true);
+            DrawRect(new Rect2(tvmX, tvmStartY, 72, 100), Colors.DeepSkyBlue, false, 2f);
+
+            // TVM monitors
+            DrawRect(new Rect2(tvmX + 12, tvmStartY + 12, 48, 38), Color.Color8(40, 40, 40), true);
+            if (k < _ticketMachineFailures)
             {
-                float winX = trTL.X + 45 + k * 120;
-                DrawRect(new Rect2(winX, trTL.Y + 12, 60, 24), Color.Color8(30, 30, 30), true);
-                
-                // Doors underneath
-                DrawRect(new Rect2(winX + 15, trTL.Y + 44, 30, 36), Color.Color8(140, 145, 150), true);
-                DrawLine(new Vector2(winX + 30, trTL.Y + 44), new Vector2(winX + 30, trTL.Y + 80), Colors.Black, 2);
+                DrawRect(new Rect2(tvmX + 12, tvmStartY + 12, 48, 38), Colors.Crimson, true);
+                DrawText("OUT OF", tvmX + 36, tvmStartY + 26, 9, Colors.White, HorizontalAlignment.Center);
+                DrawText("ORDER", tvmX + 36, tvmStartY + 38, 9, Colors.White, HorizontalAlignment.Center);
             }
-            // Control Cab visor
-            DrawRect(new Rect2(trTL.X + trW - 55, trTL.Y + 12, 45, 32), Color.Color8(20, 20, 20), true);
-            DrawText("MRT-3 BLUE", trTL.X + 80, trTL.Y + 18, 12, Colors.White);
+            else
+            {
+                DrawText("INSERT CASH", tvmX + 36, tvmStartY + 30, 8, Colors.SpringGreen, HorizontalAlignment.Center);
+            }
+
+            // Coin feeder slots
+            DrawRect(new Rect2(tvmX + 22, tvmStartY + 65, 28, 8), Colors.Gray, true);
+        }
+
+        // Draw Escalators structures
+        float escX = w - 190;
+        float escY = y + 25;
+        DrawRect(new Rect2(escX, escY, 170, h - 50), Color.Color8(15, 25, 30), true);
+        DrawRect(new Rect2(escX, escY, 170, h - 50), Colors.Yellow, false, 3f);
+        DrawText("ESCALATOR SYSTEMS", escX + 85, escY + 22, 11, Colors.LightGoldenrod, HorizontalAlignment.Center);
+
+        // Draw dynamic steps lines climbing/cycling
+        int offset = _frameCount % 4;
+        for (int k = 0; k < 12; k++)
+        {
+            float sy = escY + 45 + k * 14;
+            if (sy < escY + h - 70)
+            {
+                float stepLX = escX + 25 + (k * 4);
+                float stepRX = escX + 115 - (k * 4);
+                DrawLine(new Vector2(stepLX, sy + offset), new Vector2(stepLX + 28, sy + offset), Colors.Gray, 3);
+                DrawLine(new Vector2(stepRX, sy - offset), new Vector2(stepRX + 28, sy - offset), Colors.Gray, 3);
+            }
+        }
+
+        // Text data
+        DrawText("CONCOURSE SYSTEM HUD 02:", x + 25, y + 22, 13, Colors.Yellow);
+        
+        Color fColor = _ticketMachineFailures > 2 ? Colors.Crimson : Colors.White;
+        DrawText($"TVM Failed Terminals : {_ticketMachineFailures} booths offline", x + 25, y + 175, 12, fColor);
+
+        Color sCol = _escalatorWeightStrain > 75.0f ? Colors.Crimson : Colors.LightGreen;
+        DrawText($"Escalator Load Strain: {_escalatorWeightStrain:F1}% (Threshold Limit: 75.0%)", x + 25, y + 198, 12, sCol);
+
+        // Control guide row
+        DrawText("HOTKEYS: [F] Service Ticket Booth (-$120)  |  [S] Cool Escalator Strain (-$40)", x + 20, y + h - 22, 11, Colors.LightSkyBlue);
+    }
+
+    private void DrawInsideCarsGraphics(float x, float y, float w, float h)
+    {
+        // metallic train interior (Blue panel)
+        DrawRect(new Rect2(x, y, w, h), Color.Color8(12, 35, 80), true);
+        DrawRect(new Rect2(x, y, w, h), Color.Color8(40, 100, 200), false, 4f);
+
+        // Draw scrolling window frames looking out to dark tunnels
+        float winW = 145f;
+        float winH = 80f;
+        float startX = x + 35f;
+        float winY = y + 36f;
+        
+        int blockOffset = (_frameCount * 4) % 250;
+
+        for (int i = 0; i < 3; i++)
+        {
+            float curWinX = startX + i * 190;
+            // Window bounds
+            DrawRect(new Rect2(curWinX, winY, winW, winH), Color.Color8(1, 15, 30), true);
+            
+            // Scrolling tunnel pillars blocks in background
+            float pX = curWinX + 30 + ((blockOffset) % 110);
+            if (pX < curWinX + winW - 15)
+            {
+                DrawRect(new Rect2(pX, winY, 15, winH), Color.Color8(25, 27, 30), true);
+            }
+
+            DrawRect(new Rect2(curWinX, winY, winW, winH), Colors.Cyan, false, 3f);
+        }
+
+        // Overhead safety handles
+        for (float hx = x + 24; hx < x + w - 24; hx += 70)
+        {
+            DrawLine(new Vector2(hx, y + 1), new Vector2(hx, y + 25), Colors.Gray, 3);
+            DrawCircle(new Vector2(hx, y + 25), 8f, Colors.Gold);
+        }
+
+        // Passenger Seats rows
+        DrawRect(new Rect2(x + 40, y + 145, w - 80, 28), Color.Color8(30, 80, 150), true);
+        DrawRect(new Rect2(x + 40, y + 145, w - 80, 28), Colors.Cyan, false, 2f);
+        DrawText("[ Row Seat A - Commuters Sector ]", w / 2, y + 163, 11, Colors.LightBlue, HorizontalAlignment.Center);
+
+        // Stats panel data details
+        DrawText("INSIDE DECK SYSTEM HUD 03:", x + 25, y + 15, 13, Colors.Yellow);
+
+        Color dc = _carCrowdDensity > 8.0f ? Colors.Crimson : Colors.LightGreen;
+        DrawText($"Car crowd Density: {_carCrowdDensity:F2} / 10.0 (Threshold: 8.0)", x + w - 380, y + 15, 12, dc);
+        DrawText($"AC Strain Index  : {(_acFailureChance * 100f):F1}%", x + w - 380, y + 215, 11, Colors.LightSkyBlue);
+
+        // Flashing AC warnings (Specification 4)
+        if (_acFailed)
+        {
+            float warnW = 280;
+            float warnH = 45;
+            float warnX = x + 25;
+            float warnY = y + 195;
+
+            DrawRect(new Rect2(warnX, warnY, warnW, warnH), Colors.Crimson, true);
+            DrawRect(new Rect2(warnX, warnY, warnW, warnH), Colors.Yellow, false, 2f);
+            DrawText("🚨 !!! AIR CONDITIONER FAIL !!! 🚨", warnX + warnW/2, warnY + 20, 12, Colors.Yellow, HorizontalAlignment.Center);
+            DrawText("TEMPS OVER CAPACITY - COOL AC IMMEDIATELY!", warnX + warnW/2, warnY + 36, 10, Colors.White, HorizontalAlignment.Center);
         }
         else
         {
-            // Indicator
-            DrawText("TRAIN APPROACHING IN: " + string.Format("{0:0.0}s", _trainTimer), W / 2, trackY - 15, 15, Colors.LightSkyBlue, HorizontalAlignment.Center);
+            DrawText("Carriage vents cooling status: FUNCTIONAL (21 C)", x + 25, y + 215, 11, Colors.SpringGreen);
         }
 
-        // Draw crowded commuter dots based on density metric
-        // Max capacity representational dots = 180
-        int showCount = (int)((_platformDensity / 10.0f) * 180);
-        for (int i = 0; i < showCount && i < _commuterCoordinates.Count; i++)
-        {
-            Vector2 screenPct = _commuterCoordinates[i];
-            Vector2 basePos = new Vector2(screenPct.X * W, screenPct.Y * H);
-            
-            // Subtle breathing wiggle movement
-            float wiggleX = Mathf.Sin(_frameCount * 0.12f + i) * 2.5f;
-            float wiggleY = Mathf.Cos(_frameCount * 0.08f + i) * 1.5f;
-            Vector2 finalPos = basePos + new Vector2(wiggleX, wiggleY);
-
-            Color passColor = Colors.MediumSpringGreen;
-            if (_platformDensity > 7.0f)
-            {
-                passColor = Colors.Crimson;
-            }
-            else if (_platformDensity > 4.5f)
-            {
-                passColor = Colors.Orange;
-            }
-
-            // Draw passenger body and head circles programmatically
-            DrawCircle(finalPos, 5f, passColor);
-            DrawCircle(finalPos - new Vector2(0, 8), 3f, Color.Color8(230, 200, 180)); // Skin head
-        }
-
-        // Turnstiles gated queue areas
-        if (_turnstileGated)
-        {
-            float gateX = W - 90;
-            float gateY = H * 0.38f;
-            DrawRect(new Rect2(gateX, gateY, 70, 45), Color.Color8(120, 60, 20), true);
-            DrawText("GATED ENTRY", gateX + 35, gateY + 28, 11, Colors.White, HorizontalAlignment.Center);
-
-            // Draw queue stacks
-            for (int k = 0; k < 15; k++)
-            {
-                float qx = gateX - 20 - (k % 5) * 15;
-                float qy = gateY + 10 + (k / 5) * 14;
-                DrawCircle(new Vector2(qx, qy), 4.5f, Colors.OrangeRed);
-            }
-        }
-
-        // ==========================================
-        // 2. CONTROL PANEL HUD (Bottom 38% of Screen)
-        // ==========================================
-        float hudY = H * 0.62f;
-        DrawRect(new Rect2(0, hudY, W, H * 0.38f), Color.Color8(25, 27, 30), true);
-        DrawLine(new Vector2(0, hudY), new Vector2(W, hudY), Color.Color8(70, 75, 80), 4);
-
-        // Header Title
-        DrawRect(new Rect2(0, hudY + 4, W, 26), Color.Color8(15, 17, 20), true);
-        DrawText("⚡ EDSA METRO TRAFFIC CONTROL CENTER - TYCOON HUD ⚡", W / 2, hudY + 22, 14, Colors.LightGoldenrod, HorizontalAlignment.Center);
-
-        // Column 1 Box: Financial Status Card
-        float cardY = hudY + 42;
-        float cardH = H - cardY - 45;
-        DrawRect(new Rect2(25, cardY, 220, cardH), Color.Color8(10, 12, 15), true);
-        DrawRect(new Rect2(25, cardY, 220, cardH), Colors.DarkGreen, false, 2f);
-        DrawText("DAILY BUDGET", 135, cardY + 24, 13, Colors.DarkSeaGreen, HorizontalAlignment.Center);
-        DrawText($"${_dailyBudget:F2}", 135, cardY + 54, 20, Colors.White, HorizontalAlignment.Center);
-        DrawText($"-${(15.0f + _securityGuards * 4.0f + _ventilationLevel * 5.0f):F1}/s Overhead fee", 135, cardY + 80, 11, Colors.IndianRed, HorizontalAlignment.Center);
-
-        // Column 2 Box: Platform density gauge
-        float card2X = 270;
-        DrawRect(new Rect2(card2X, cardY, 230, cardH), Color.Color8(10, 12, 15), true);
-        Color capColor = _platformDensity > 7.0f ? Colors.DimGray : (_platformDensity > 4.5f ? Colors.Goldenrod : Colors.Green);
-        DrawRect(new Rect2(card2X, cardY, 230, cardH), capColor, false, 2f);
-        DrawText("PLATFORM DENSITY", card2X + 115, cardY + 24, 13, Colors.LightSkyBlue, HorizontalAlignment.Center);
-        DrawText($"{_platformDensity:F2} / 10.00", card2X + 115, cardY + 54, 20, Colors.White, HorizontalAlignment.Center);
-        
-        // Gauge bar inside card
-        float barW = 180;
-        float barH = 12;
-        float barX = card2X + 25;
-        float barY = cardY + 70;
-        DrawRect(new Rect2(barX, barY, barW, barH), Color.Color8(30, 30, 30), true);
-        DrawRect(new Rect2(barX, barY, barW * (_platformDensity / 10.0f), barH), _platformDensity > 4.5f ? Colors.Red : Colors.Green, true);
-
-        // Column 3 Box: Riot Meter (Commuter Rage) progress bar
-        float card3X = 525;
-        float card3W = W - card3X - 25;
-        DrawRect(new Rect2(card3X, cardY, card3W, cardH), Color.Color8(10, 12, 15), true);
-        Color rBarColor = _commuterRage > 80.0f ? Colors.Crimson : (_commuterRage > 50.0f ? Colors.DarkOrange : Colors.MediumSpringGreen);
-        DrawRect(new Rect2(card3X, cardY, card3W, cardH), rBarColor, false, 2f);
-        DrawText("RIOT METER (RAGE)", card3X + card3W/2, cardY + 24, 13, Colors.IndianRed, HorizontalAlignment.Center);
-        DrawText($"{_commuterRage:F1}%", card3X + card3W/2, cardY + 54, 20, Colors.White, HorizontalAlignment.Center);
-
-        // Progress bar percentage inside card
-        float rageBarW = card3W - 50;
-        float rBarX = card3X + 25;
-        DrawRect(new Rect2(rBarX, barY, rageBarW, barH), Color.Color8(30, 30, 30), true);
-        DrawRect(new Rect2(rBarX, barY, rageBarW * (_commuterRage / 100.0f), barH), rBarColor, true);
-
-        // Operational upgrades text row
-        float statusRowsY = cardY + cardH + 12;
-        string gateStatusStr = _turnstileGated ? "RESTRICTED (GATED)" : "RELEASED (OPEN)";
-        DrawText($"VENTILATION SYSTEM: Lvl {_ventilationLevel}   |   OFFICERS DEPLOYED: {_securityGuards}   |   TURNSTYLE CONTROL: {gateStatusStr}", 25, statusRowsY, 12, Colors.LightGray);
-        DrawText($"Timer: {FormatShiftTime(_timeRemaining)}   |   Total Commuters Dispatched: {_passengersServed}", W - 25, statusRowsY, 12, Colors.Yellow, HorizontalAlignment.Right);
-
-        // Operations Hotkeys Alerts Banner
-        float bannerY = H - 32;
-        DrawRect(new Rect2(0, bannerY, W, 32), _notificationBg, true);
-        DrawText("HOTKEYS: [1] Extra Train ($400) | [2] Officer Staff ($180) | [3] Speaker Apology ($40) | [4] Toggle Gate | [5] Vent Aircon ($800)", 20, bannerY + 20, 11, Colors.White);
-        DrawText(_notificationText, W - 20, bannerY + 20, 11, Colors.White, HorizontalAlignment.Right);
-
-        // ==========================================
-        // 3. OVERLAYS (Win/GameOver Riot panels)
-        // ==========================================
-        if (_riotErupted)
-        {
-            float boxW = 660f;
-            float boxH = 220f;
-            Vector2 boxTL = new Vector2(W/2 - boxW/2, H/2 - boxH/2 - 40);
-
-            // Shaded backdrop
-            DrawRect(new Rect2(0, 0, W, H), Color.Color8(0, 0, 0, 150), true);
-
-            FillRect(boxTL.X, boxTL.Y, boxW, boxH, Color.Color8(128, 0, 0));
-            DrawRect(new Rect2(boxTL.X, boxTL.Y, boxW, boxH), Colors.Yellow, false, 4f);
-
-            DrawText("🚨 !!! GAME OVER / SYSTEM LOSS !!! 🚨", W/2, boxTL.Y + 45, 24, Colors.Yellow, HorizontalAlignment.Center);
-            DrawText("THE STATION INCURRED A MASSIVE PUBLIC COMMUTER RIOT!", W/2, boxTL.Y + 95, 17, Colors.White, HorizontalAlignment.Center);
-            DrawText("Rage levels hit 100%. Commuter loading was completely halted.", W/2, boxTL.Y + 125, 14, Colors.LightGray, HorizontalAlignment.Center);
-            DrawText("Press [ R ] to Restart Tyler Shift", W/2, boxTL.Y + 180, 16, Colors.Gold, HorizontalAlignment.Center);
-        }
-
-        if (_dayCompleted && !_riotErupted)
-        {
-            float boxW = 660f;
-            float boxH = 220f;
-            Vector2 boxTL = new Vector2(W/2 - boxW/2, H/2 - boxH/2 - 40);
-
-            DrawRect(new Rect2(0, 0, W, H), Color.Color8(0, 0, 0, 150), true);
-
-            FillRect(boxTL.X, boxTL.Y, boxW, boxH, Color.Color8(0, 80, 40));
-            DrawRect(new Rect2(boxTL.X, boxTL.Y, boxW, boxH), Colors.Gold, false, 4f);
-
-            DrawText("🏆 !!! SHIFT COMPLETED !!! 🏆", W/2, boxTL.Y + 45, 24, Colors.Gold, HorizontalAlignment.Center);
-            DrawText("YOU CLEANLY SURVIVED THE EDSA MANAGER SHIFT!", W/2, boxTL.Y + 95, 17, Colors.White, HorizontalAlignment.Center);
-            DrawText($"Final Budget Remaining: ${_dailyBudget:F2}  |  Boarders Served: {_passengersServed}", W/2, boxTL.Y + 125, 14, Colors.LightGray, HorizontalAlignment.Center);
-            DrawText("Press [ R ] to Play Shift Again", W/2, boxTL.Y + 180, 16, Colors.Yellow, HorizontalAlignment.Center);
-        }
+        // Action inputs helps
+        DrawText("HOTKEYS: [A] Service AC Systems (-$150)", x + 20, y + h - 22, 11, Colors.LightSkyBlue);
     }
 
     private string FormatShiftTime(float t)
@@ -565,11 +630,6 @@ public partial class HomeworkWorkspace : Node2D
     {
         if (_font == null) return;
         DrawString(_font, new Vector2(x, y), text, alignment, -1, size, color);
-    }
-
-    private void FillRect(float x, float y, float w, float h, Color color)
-    {
-        DrawRect(new Rect2(x, y, w, h), color, true);
     }
 
     public override void _ExitTree()
