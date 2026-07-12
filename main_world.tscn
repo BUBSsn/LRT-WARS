@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://f7cubk2bdae8"]
+
+[ext_resource type="Script" uid="uid://docb7nim0caqk" path="res://scripts/HomeworkWorkspace.cs" id="1_itk02"]
+
+[node name="MainWorld" type="Node2D" unique_id=901706504]
+script = ExtResource("1_itk02")
