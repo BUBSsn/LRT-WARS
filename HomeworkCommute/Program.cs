@@ -30,6 +30,17 @@ namespace EDSAStationManager
         INSIDE_CARS
     }
 
+    // Specification 1: COMMUTER AGENT DATA STRUCTURE
+    public class CommuterAgent
+    {
+        public Vector2 Position { get; set; }
+        public Vector2 TargetPosition { get; set; }
+        public Perspective CurrentPerspective { get; set; }
+        public float MovementSpeed { get; set; }
+        public float IndividualRage { get; set; }
+        public bool IsPriority { get; set; } // Flag to draw as pink/magenta priority lines
+    }
+
     // Specification 2: GLOBAL STATE SINGLETON MAPS
     public class SimulationManager
     {
@@ -46,6 +57,7 @@ namespace EDSAStationManager
         public bool IsRunning { get; set; } = true;
 
         // Platform View Stats
+        public float PlatformDensity { get; set; } = 1.0f;
         public float TrainDelayTimer { get; set; } = 0.0f;       // Grows constantly (Seconds)
         public int PickpocketCount { get; set; } = 0;           // Passive growth
         public float PriorityQueueViolationRate { get; set; } = 0.0f; // Percentage 0.0 to 1.0
@@ -58,12 +70,22 @@ namespace EDSAStationManager
         public float CarCrowdDensity { get; set; } = 1.0f;       // Density index 0.0 to 10.0
         public float ACFailureChance { get; set; } = 0.0f;       // Grows constantly
         public bool ACFailed { get; set; } = false;
+
+        // Week 2: Entity lists and spawning meters
+        public List<CommuterAgent> Commuters { get; } = new List<CommuterAgent>();
+        public float SpawnerTimer { get; set; } = 0.0f;
     }
 
     class Program
     {
         private const int Width = 80;
         private const int Height = 24;
+
+        // Viewport layout bounds definitions (Viewport Canvas)
+        private const int ViewX = 2;
+        private const int ViewY = 5;
+        private const int ViewW = Width - 4; // 76
+        private const int ViewH = Height - 8; // 16
 
         // Visual Buffer
         private static ConsoleCell[,] _buffer = new ConsoleCell[Width, Height];
@@ -89,7 +111,7 @@ namespace EDSAStationManager
         static async Task Main(string[] args)
         {
             Console.CursorVisible = false;
-            Console.Title = "EDSA Traffic Manager - Multi-Screen Central console";
+            Console.Title = "EDSA Traffic Manager - Week 2 Entity Engine";
 
             Initialize();
 
@@ -129,6 +151,10 @@ namespace EDSAStationManager
                 sim.CarCrowdDensity = 2.0f;
                 sim.ACFailureChance = 0.05f;
                 sim.ACFailed = false;
+
+                // Week 2 resets
+                sim.Commuters.Clear();
+                sim.SpawnerTimer = 0.0f;
 
                 _screenOffset = Vector2.Zero;
                 _alertMessage = "EDSA SYSTEM RESTORED. SWAP VEHICLE CHANNELS USING KEY 1, 2, 3.";
@@ -228,9 +254,39 @@ namespace EDSAStationManager
                         {
                             // Deploy train
                             sim.TrainDelayTimer = 0.0f;
-                            // Clear platform crowding
-                            sim.CarCrowdDensity = Math.Min(10.0f, sim.CarCrowdDensity + 2.0f);
-                            FlashAlert("EXPRESS TRAIN DEPLOYED. DELAY CLOCK RESET! (-$100)", ConsoleColor.Green);
+
+                            // Week 2: Board passengers nearest the tracks from Platform to Inside Cars
+                            int boarded = 0;
+                            Random rng = new Random();
+                            for (int i = sim.Commuters.Count - 1; i >= 0; i--)
+                            {
+                                var agent = sim.Commuters[i];
+                                // Check if waiting on platform near tracks (e.g. Y <= ViewY + 9)
+                                if (agent.CurrentPerspective == Perspective.PLATFORM && agent.Position.Y <= ViewY + 9)
+                                {
+                                    agent.CurrentPerspective = Perspective.INSIDE_CARS;
+                                    // Set position inside train carriage
+                                    agent.Position = new Vector2(ViewX + 10 + rng.Next(ViewW - 20), ViewY + ViewH - 3);
+                                    // Target dynamic seating lines
+                                    agent.TargetPosition = new Vector2(ViewX + 5 + rng.Next(ViewW - 10), ViewY + 11);
+                                    boarded++;
+                                    if (boarded >= 8) break; // board max 8 at a time
+                                }
+                            }
+
+                            // Passengers that were already inside cars leave the station
+                            int transported = 0;
+                            for (int i = sim.Commuters.Count - 1; i >= 0; i--)
+                            {
+                                var agent = sim.Commuters[i];
+                                if (agent.CurrentPerspective == Perspective.INSIDE_CARS && agent.Position.Y <= ViewY + 11.5f)
+                                {
+                                    sim.Commuters.RemoveAt(i);
+                                    transported++;
+                                }
+                            }
+
+                            FlashAlert($"MRT DEPLOYED! Boarded {boarded} passengers. Transported {transported} away. (-$100)", ConsoleColor.Green);
                             sim.DailyBudget = Math.Max(0.0f, sim.DailyBudget - 100.0f);
                         }
                         else if (keyInfo.Key == ConsoleKey.P)
@@ -300,40 +356,124 @@ namespace EDSAStationManager
 
             _frameCount++;
 
-            // --- Specification 3: MULTI-SCREEN CHAOS LOGIC (PROCESS TICK) ---
-            // Passive growth of metrics simultaneous across all channels:
+            // ====================================================
+            // Specification 2: PERSPECTIVE-BASED ENTITY MANAGEMENT
+            // ====================================================
 
-            // 1. Platform updates
+            // 1. Spawner Cooldown system (1.5 to 3 seconds)
+            sim.SpawnerTimer -= deltaTime;
+            if (sim.SpawnerTimer <= 0.0f)
+            {
+                Random rng = new Random();
+                // Spawn a new agent in UNDER_STATION (street entrance on left)
+                var newAgent = new CommuterAgent
+                {
+                    Position = new Vector2(ViewX + 1, ViewY + 7 + rng.Next(-2, 3)),
+                    CurrentPerspective = Perspective.UNDER_STATION,
+                    MovementSpeed = 3.5f + (float)rng.NextDouble() * 3.5f,
+                    IndividualRage = 0.0f,
+                    IsPriority = rng.NextDouble() < 0.15 // 15% priority queue lines
+                };
+
+                // Target position represents turnstiles / escalator area on the right
+                newAgent.TargetPosition = new Vector2(ViewX + ViewW - 22, ViewY + 5 + rng.Next(-1, 2));
+
+                sim.Commuters.Add(newAgent);
+                sim.SpawnerTimer = 1.5f + (float)rng.NextDouble() * 1.5f;
+            }
+
+            // 2. Count agents inside screens
+            int underStationCount = 0;
+            int platformCount = 0;
+            int insideCarsCount = 0;
+            foreach (var agent in sim.Commuters)
+            {
+                if (agent.CurrentPerspective == Perspective.UNDER_STATION) underStationCount++;
+                else if (agent.CurrentPerspective == Perspective.PLATFORM) platformCount++;
+                else if (agent.CurrentPerspective == Perspective.INSIDE_CARS) insideCarsCount++;
+            }
+
+            // ====================================================
+            // Specification 3: VELOCITY & CROWD DENSITY CALCULATIONS
+            // ====================================================
+
+            // Dynamic scaling based on active agent counts
+            sim.PlatformDensity = 0.5f + platformCount * 0.35f;
+            if (sim.PlatformDensity > 10.0f) sim.PlatformDensity = 10.0f;
+
+            sim.CarCrowdDensity = 0.5f + insideCarsCount * 0.35f;
+            if (sim.CarCrowdDensity > 10.0f) sim.CarCrowdDensity = 10.0f;
+
+            // Throttling Check (Overcrowded view checks)
+            bool underStationOverloaded = underStationCount > 10;
+            bool platformOverloaded = sim.PlatformDensity > 5.0f;
+            bool insideCarsOverloaded = sim.CarCrowdDensity > 7.5f;
+
+            // Move agent positions with throttle limits
+            for (int i = sim.Commuters.Count - 1; i >= 0; i--)
+            {
+                var agent = sim.Commuters[i];
+
+                float multiplier = 1.0f;
+                if (agent.CurrentPerspective == Perspective.UNDER_STATION && underStationOverloaded)
+                    multiplier = 0.30f;
+                else if (agent.CurrentPerspective == Perspective.PLATFORM && platformOverloaded)
+                    multiplier = 0.30f;
+                else if (agent.CurrentPerspective == Perspective.INSIDE_CARS && insideCarsOverloaded)
+                    multiplier = 0.30f;
+
+                Vector2 dir = agent.TargetPosition - agent.Position;
+                float dist = dir.Length();
+                if (dist > 0.3f)
+                {
+                    Vector2 norm = Vector2.Normalize(dir);
+                    agent.Position += norm * agent.MovementSpeed * multiplier * deltaTime;
+                }
+                else
+                {
+                    // Reached target coordinate destination!
+                    if (agent.CurrentPerspective == Perspective.UNDER_STATION)
+                    {
+                        // Transition to PLATFORM
+                        agent.CurrentPerspective = Perspective.PLATFORM;
+                        Random rng = new Random();
+                        // Position them near the bottom stairs of platform
+                        int targetX = ViewX + 4 + rng.Next(ViewW - 12);
+                        int targetY = ViewY + 8; // wait line behind caution tracks
+                        agent.Position = new Vector2(targetX, ViewY + ViewH - 3);
+                        agent.TargetPosition = new Vector2(targetX, targetY);
+                    }
+                    else if (agent.CurrentPerspective == Perspective.PLATFORM)
+                    {
+                        // Wait at platform line
+                    }
+                    else if (agent.CurrentPerspective == Perspective.INSIDE_CARS)
+                    {
+                        // Settle down inside carriage seats
+                    }
+                }
+            }
+
+            // Passive updates metrics
             sim.TrainDelayTimer += deltaTime;
-            
-            // Random chance: Pickpockets assemble
             if (_frameCount % 180 == 0 && sim.PickpocketCount < 10)
             {
                 sim.PickpocketCount++;
             }
-            // Violations rate increases
             sim.PriorityQueueViolationRate = Math.Min(1.0f, sim.PriorityQueueViolationRate + 0.015f * deltaTime);
 
-            // 2. Under-Station Updates
-            // Random chance: ticketing booth fails
             if (_frameCount % 300 == 0 && sim.TicketMachineFailures < 6)
             {
                 sim.TicketMachineFailures++;
             }
-            // Escalators accumulate weight strain
             sim.EscalatorWeightStrain = Math.Min(100.0f, sim.EscalatorWeightStrain + (2.5f + sim.TicketMachineFailures * 1.5f) * deltaTime);
 
-            // 3. Inside-Cars Updates
-            // Passengers get packed inside carriages
-            sim.CarCrowdDensity = Math.Min(10.0f, sim.CarCrowdDensity + 0.15f * deltaTime);
-            
-            // AC fails chance climbs
+            // AC tripped status
             sim.ACFailureChance = Math.Min(1.0f, sim.ACFailureChance + 0.025f * sim.CarCrowdDensity * deltaTime);
             if (!sim.ACFailed && sim.ACFailureChance > 0.6f)
             {
-                // Roll check
                 Random rng = new Random();
-                if (rng.NextDouble() < 0.005f) // random trip
+                if (rng.NextDouble() < 0.005f) 
                 {
                     sim.ACFailed = true;
                     FlashAlert("💥 WARNING! TRAIN CAR 4 AC COMPRESSOR FAILED!", ConsoleColor.Red);
@@ -343,42 +483,33 @@ namespace EDSAStationManager
             // --- EXPONENTIAL RAGE METRICS ADDITIONS ---
             float rageAddition = 0.0f;
 
-            // 1. Train delay impact
             if (sim.TrainDelayTimer > 15.0f)
             {
                 float excess = sim.TrainDelayTimer - 15.0f;
-                // Exponential rage growth: Exp(excess * 0.15)
                 rageAddition += MathF.Exp(excess * 0.15f) * 0.35f * deltaTime;
             }
 
-            // 2. Escalators weight strain impact
             if (sim.EscalatorWeightStrain > 75.0f)
             {
                 float excess = sim.EscalatorWeightStrain - 75.0f;
-                // Exponential rage growth: Exp(excess * 0.09)
                 rageAddition += MathF.Exp(excess * 0.09f) * 0.45f * deltaTime;
             }
 
-            // 3. Car overcrowding density impact
             if (sim.CarCrowdDensity > 8.0f)
             {
                 float excess = sim.CarCrowdDensity - 8.0f;
-                // Exponential rage growth: Exp(excess * 0.5)
                 rageAddition += MathF.Exp(excess * 0.5f) * 0.65f * deltaTime;
             }
 
-            // Pickpockets, ticket machine failures, and AC failures add flat passive rates
             rageAddition += sim.PickpocketCount * 0.25f * deltaTime;
             rageAddition += sim.TicketMachineFailures * 0.4f * deltaTime;
             if (sim.ACFailed)
             {
-                rageAddition += 8.0f * deltaTime; // Extreme passive rage rise
+                rageAddition += 8.0f * deltaTime;
             }
 
-            // Apply calculated rage
             sim.GlobalCommuterRage += rageAddition;
 
-            // Slowly decay rage if everything is normal and below thresholds
             if (sim.TrainDelayTimer <= 15.0f && sim.EscalatorWeightStrain <= 75.0f && sim.CarCrowdDensity <= 8.0f && !sim.ACFailed)
             {
                 sim.GlobalCommuterRage = Math.Max(0.0f, sim.GlobalCommuterRage - 1.5f * deltaTime);
@@ -387,17 +518,15 @@ namespace EDSAStationManager
             // Clamp rage
             if (sim.GlobalCommuterRage > 100.0f) sim.GlobalCommuterRage = 100.0f;
 
-            // Specification 3 Win/Loss trigger check:
-            // "triggers a Game Over sequence when 'CommuterRage' reaches 100.0, outputting a clear alert that the station has erupted into a public riot."
             if (sim.GlobalCommuterRage >= 100.0f)
             {
                 sim.RiotErupted = true;
             }
 
-            // Tick down budget passively
+            // Passively decaying budget on operations
             sim.DailyBudget = Math.Max(0.0f, sim.DailyBudget - 8.0f * deltaTime);
 
-            // Periodically clear active notification banners
+            // Notification clears
             if (_alertTicksRemaining > 0)
             {
                 _alertTicksRemaining--;
@@ -434,7 +563,6 @@ namespace EDSAStationManager
             // ==========================================
             DrawRect(1, 1, Width - 2, 4, '═', ConsoleColor.DarkCyan, ConsoleColor.Black);
             
-            // Selected view indicator
             string viewName = sim.ActivePerspective switch
             {
                 Perspective.PLATFORM => "[PLATFORM ACTION VIEW]",
@@ -444,7 +572,6 @@ namespace EDSAStationManager
             };
             DrawString(3, 2, $"{viewName}   |   Daily Budget: ${sim.DailyBudget:F2}", ConsoleColor.Yellow, ConsoleColor.Black);
             
-            // Riot Meter progress bar representing GlobalCommuterRage
             DrawString(3, 3, "Global Riot Meter (Rage):", ConsoleColor.White, ConsoleColor.Black);
             ConsoleColor rageColor = sim.GlobalCommuterRage > 80.0f ? ConsoleColor.Red : (sim.GlobalCommuterRage > 50.0f ? ConsoleColor.Yellow : ConsoleColor.Green);
             DrawProgressBar(30, 3, 20, sim.GlobalCommuterRage / 100.0f, rageColor);
@@ -453,22 +580,42 @@ namespace EDSAStationManager
             // ==========================================
             // 2. SPECIFICATION 4: DYNAMIC VIEWPORT CANVAS
             // ==========================================
-            int viewX = 2;
-            int viewY = 5;
-            int viewW = Width - 4;
-            int viewH = Height - 8;
-
             switch (sim.ActivePerspective)
             {
                 case Perspective.PLATFORM:
-                    RenderPlatformView(viewX, viewY, viewW, viewH, sim);
+                    RenderPlatformView(ViewX, ViewY, ViewW, ViewH, sim);
                     break;
                 case Perspective.UNDER_STATION:
-                    RenderUnderStationView(viewX, viewY, viewW, viewH, sim);
+                    RenderUnderStationView(ViewX, ViewY, ViewW, ViewH, sim);
                     break;
                 case Perspective.INSIDE_CARS:
-                    RenderInsideCarsView(viewX, viewY, viewW, viewH, sim);
+                    RenderInsideCarsView(ViewX, ViewY, ViewW, ViewH, sim);
                     break;
+            }
+
+            // ====================================================
+            // Specification 4: GRAPHICAL REPRESENTATION OF AGENTS
+            // ====================================================
+            foreach (var agent in sim.Commuters)
+            {
+                if (agent.CurrentPerspective == sim.ActivePerspective)
+                {
+                    int ax = (int)Math.Round(agent.Position.X);
+                    int ay = (int)Math.Round(agent.Position.Y);
+
+                    // Clamp to inside active Viewport border box
+                    if (ax > ViewX && ax < ViewX + ViewW - 1 && ay > ViewY && ay < ViewY + ViewH - 1)
+                    {
+                        char cSymbol = '☺';
+                        ConsoleColor cCol = ConsoleColor.Cyan;
+                        if (agent.IsPriority)
+                        {
+                            cSymbol = '♀';
+                            cCol = ConsoleColor.Magenta; // Pink/Magenta priority PWD/Women queue lines
+                        }
+                        DrawChar(ax, ay, cSymbol, cCol, GetViewportBg(sim.ActivePerspective));
+                    }
+                }
             }
 
             // Operations Alert Bar (bottom layer)
@@ -484,6 +631,17 @@ namespace EDSAStationManager
 
             // Flush Grid
             RenderBufferToConsole();
+        }
+
+        private static ConsoleColor GetViewportBg(Perspective view)
+        {
+            return view switch
+            {
+                Perspective.PLATFORM => ConsoleColor.DarkGray,
+                Perspective.UNDER_STATION => ConsoleColor.DarkCyan,
+                Perspective.INSIDE_CARS => ConsoleColor.DarkBlue,
+                _ => ConsoleColor.Black
+            };
         }
 
         private static void RenderPlatformView(int x, int y, int w, int h, SimulationManager sim)
@@ -525,18 +683,6 @@ namespace EDSAStationManager
             {
                 char c = (dx + _frameCount / 4) % 2 == 0 ? '▒' : '■';
                 DrawChar(dx, safetyY, c, ConsoleColor.Yellow, ConsoleColor.DarkGray);
-            }
-
-            // Commuters standing on platform
-            int commutersCount = Math.Min(35, (int)(sim.TrainDelayTimer * 1.5f) + 5);
-            Random rng = new Random(42);
-            for (int i = 0; i < commutersCount; i++)
-            {
-                int px = rng.Next(x + 2, x + w - 3);
-                int py = rng.Next(safetyY + 1, y + h - 3);
-                char passChar = rng.Next(2) == 0 ? 'o' : 'x';
-                ConsoleColor passCol = sim.PriorityQueueViolationRate > 0.4f ? ConsoleColor.Yellow : ConsoleColor.Green;
-                DrawChar(px, py, passChar, passCol, ConsoleColor.DarkGray);
             }
 
             // Stats HUD overlay inside Platform view
@@ -664,7 +810,7 @@ namespace EDSAStationManager
             int seatStartX = x + 4;
             int seatStartY = y + 10;
             DrawString(seatStartX, seatStartY,     "|____[Seat Row A]____|     |____[Seat Row B]____|", ConsoleColor.Cyan, ConsoleColor.DarkBlue);
-            DrawString(seatStartX, seatStartY + 1, "|[o]  [o]   [ ]  [x]|     |[x]  [ ]   [o]  [o]|", ConsoleColor.White, ConsoleColor.DarkBlue);
+            DrawString(seatStartX, seatStartY + 1, "|[ ]  [ ]   [ ]  [ ]|     |[ ]  [ ]   [ ]  [ ]|", ConsoleColor.White, ConsoleColor.DarkBlue);
 
             // Stats overlay inside carriage
             DrawString(x + 3, y + 1, " ═ METRO DECK CARRIAGE STATUS ═ ", ConsoleColor.Yellow, ConsoleColor.DarkBlue);
