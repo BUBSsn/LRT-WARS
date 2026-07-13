@@ -10,16 +10,29 @@ public enum Perspective
 }
 
 public partial class SimulationManager : Node
-
 {
     public static SimulationManager Instance { get; private set; }
 
-    public Perspective ActivePerspective { get; set; } = Perspective.PLATFORM;
+    public Node2D ConcourseScreen { get; set; }
+    public Node2D PlatformScreen { get; set; }
+    public Node2D TrainScreen { get; set; }
+
+    private Perspective _activePerspective = Perspective.PLATFORM;
+    public Perspective ActivePerspective
+    {
+        get => _activePerspective;
+        set
+        {
+            _activePerspective = value;
+            UpdateScreenVisibilities();
+        }
+    }
     
     // Core game state
     public float GlobalCommuterRage { get; set; } = 0.0f;
     public float DailyBudget { get; set; } = 5000.0f;
     public bool RiotErupted { get; set; } = false;
+    public float ShiftTimer { get; set; } = 0.0f;
     
     // Platform Metrics
     public float PlatformDensity { get; set; } = 0.0f;
@@ -35,6 +48,8 @@ public partial class SimulationManager : Node
     public float CarCrowdDensity { get; set; } = 2.0f;
     public float ACFailureChance { get; set; } = 0.05f;
     public bool ACFailed { get; set; } = false;
+
+    public PackedScene AgentScene { get; set; }
 
     // Agents
     public List<GodotCommuterAgent> Commuters { get; } = new List<GodotCommuterAgent>();
@@ -65,6 +80,8 @@ public partial class SimulationManager : Node
     {
         Instance = this;
         
+        AgentScene = GD.Load<PackedScene>("res://GodotCommuterAgent.tscn");
+        
         // Register InputMap dynamically
         BindInput("view_1", Key.Key1, Key.Kp1);
         BindInput("view_2", Key.Key2, Key.Kp2);
@@ -79,6 +96,7 @@ public partial class SimulationManager : Node
         BindInput("action_a", Key.A);
         
         TicketMachineBreakTimer = 15.0f + (float)_random.NextDouble() * 5.0f;
+        CallDeferred(nameof(UpdateScreenVisibilities));
     }
 
     private void BindInput(string actionName, Key key1, Key? key2 = null)
@@ -106,6 +124,7 @@ public partial class SimulationManager : Node
         DailyBudget = 5000.0f;
         ActivePerspective = Perspective.PLATFORM;
         RiotErupted = false;
+        ShiftTimer = 0.0f;
 
         PlatformDensity = 0.5f;
         TrainDelayTimer = 0.0f;
@@ -169,17 +188,19 @@ public partial class SimulationManager : Node
         _spawnerTimer -= delta;
         if (_spawnerTimer <= 0.0f)
         {
-            var newAgent = new GodotCommuterAgent
+            if (AgentScene != null)
             {
-                GlobalPosition = new Vector2(25f, viewY + viewH * 0.5f + _random.Next(-40, 40)),
-                CurrentPerspective = Perspective.UNDER_STATION,
-                MovementSpeed = 80.0f + (float)_random.NextDouble() * 70.0f,
-                IndividualRage = 0.0f,
-                IsPriority = _random.NextDouble() < 0.15,
-                TargetPosition = new Vector2(_viewportW - 190, viewY + viewH * 0.5f + _random.Next(-30, 30))
-            };
-            AddChild(newAgent);
-            Commuters.Add(newAgent);
+                var newAgent = AgentScene.Instantiate<GodotCommuterAgent>();
+                newAgent.Position = new Vector2(25f, viewY + viewH * 0.5f + _random.Next(-40, 40));
+                newAgent.CurrentPerspective = Perspective.UNDER_STATION;
+                newAgent.MovementSpeed = 80.0f + (float)_random.NextDouble() * 70.0f;
+                newAgent.IndividualRage = 0.0f;
+                newAgent.IsPriority = _random.NextDouble() < 0.15;
+                newAgent.TargetPosition = new Vector2(_viewportW - 190, viewY + viewH * 0.5f + _random.Next(-30, 30));
+                
+                AddChild(newAgent);
+                Commuters.Add(newAgent);
+            }
             
             _spawnerTimer = 1.5f + (float)_random.NextDouble() * 1.5f;
         }
@@ -226,7 +247,7 @@ public partial class SimulationManager : Node
                 
             agent.TargetMultiplier = multiplier;
 
-            Vector2 dir = agent.TargetPosition - agent.GlobalPosition;
+            Vector2 dir = agent.TargetPosition - agent.Position;
             if (dir.Length() <= 8.0f)
             {
                 if (agent.CurrentPerspective == Perspective.UNDER_STATION)
@@ -234,13 +255,14 @@ public partial class SimulationManager : Node
                     agent.CurrentPerspective = Perspective.PLATFORM;
                     int targetX = 50 + _random.Next((int)_viewportW - 150);
                     int targetY = (int)(viewY + 115);
-                    agent.GlobalPosition = new Vector2(targetX, viewY + viewH - 45);
+                    agent.Position = new Vector2(targetX, viewY + viewH - 45);
                     agent.TargetPosition = new Vector2(targetX, targetY);
                 }
             }
         }
 
         TrainDelayTimer += delta;
+        ShiftTimer += delta;
         PriorityQueueViolationRate = Math.Min(1.0f, PriorityQueueViolationRate + 0.015f * delta);
         EscalatorWeightStrain = Math.Min(100.0f, EscalatorWeightStrain + (2.5f + TicketMachineFailures * 1.5f) * delta);
 
@@ -334,7 +356,7 @@ public partial class SimulationManager : Node
                 if (i == j) continue;
                 var victim = Commuters[j];
                 if (victim.CurrentPerspective != Perspective.PLATFORM) continue;
-                if (thief.GlobalPosition.DistanceTo(victim.GlobalPosition) < 30.0f)
+                if (thief.Position.DistanceTo(victim.Position) < 30.0f)
                 {
                     GlobalCommuterRage = Math.Min(100.0f, GlobalCommuterRage + 10.0f * delta);
                     victim.IndividualRage += 5.0f * delta;
@@ -371,6 +393,38 @@ public partial class SimulationManager : Node
                 FanActiveOnPlatform = false;
                 FanActiveOnCars = false;
                 FanCooldownTimer = 0.0f;
+            }
+        }
+    }
+
+    private void ResolveScreenReferences()
+    {
+        if (ConcourseScreen == null || !IsInstanceValid(ConcourseScreen))
+        {
+            ConcourseScreen = GetTree().Root.FindChild("Concourse_Screen", true, false) as Node2D;
+        }
+        if (PlatformScreen == null || !IsInstanceValid(PlatformScreen))
+        {
+            PlatformScreen = GetTree().Root.FindChild("Platform_Screen", true, false) as Node2D;
+        }
+        if (TrainScreen == null || !IsInstanceValid(TrainScreen))
+        {
+            TrainScreen = GetTree().Root.FindChild("Train_Screen", true, false) as Node2D;
+        }
+    }
+
+    public void UpdateScreenVisibilities()
+    {
+        ResolveScreenReferences();
+        if (ConcourseScreen != null) ConcourseScreen.Visible = (_activePerspective == Perspective.UNDER_STATION);
+        if (PlatformScreen != null) PlatformScreen.Visible = (_activePerspective == Perspective.PLATFORM);
+        if (TrainScreen != null) TrainScreen.Visible = (_activePerspective == Perspective.INSIDE_CARS);
+
+        foreach (var agent in Commuters)
+        {
+            if (IsInstanceValid(agent))
+            {
+                agent.Visible = (agent.CurrentPerspective == _activePerspective);
             }
         }
     }
