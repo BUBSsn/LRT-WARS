@@ -9,475 +9,702 @@ public enum Perspective
     INSIDE_CARS
 }
 
+public enum TrainRoundState
+{
+    WaitingForTrain,
+    Boarding,
+    Scoring,
+    Transition
+}
+
 public partial class SimulationManager : Node
 {
     public static SimulationManager Instance { get; private set; }
 
-    public Node2D ConcourseScreen { get; set; }
-    public Node2D PlatformScreen { get; set; }
-    public Node2D TrainScreen { get; set; }
+    public const int LaneCount = 5;
 
-    private Perspective _activePerspective = Perspective.PLATFORM;
-    public Perspective ActivePerspective
-    {
-        get => _activePerspective;
-        set
-        {
-            _activePerspective = value;
-            UpdateScreenVisibilities();
-        }
-    }
-    
-    // Core game state
-    public float GlobalCommuterRage { get; set; } = 0.0f;
-    public float DailyBudget { get; set; } = 5000.0f;
-    public bool RiotErupted { get; set; } = false;
-    public float ShiftTimer { get; set; } = 0.0f;
-    
-    // Platform Metrics
-    public float PlatformDensity { get; set; } = 0.0f;
-    public float TrainDelayTimer { get; set; } = 0.0f;
-    public int PickpocketCount { get; set; } = 0;
-    public float PriorityQueueViolationRate { get; set; } = 0.05f;
+    private const float BaseRoundDuration = 25.0f;
+    private const float RoundDurationDecrement = 2.0f;
+    private const float MinimumRoundDuration = 10.0f;
+    private const float TrainArrivalSeconds = 1.35f;
+    private const float TrainDepartureSeconds = 0.85f;
+    private const float LaneSpacing = 34.0f;
+    private const float LaneTopOffset = 184.0f;
+    private const float LaneLeftMargin = 120.0f;
+    private const float LaneRightMargin = 120.0f;
+    private const float SpawnOffset = 48.0f;
+    private const float PassengerSpawnDelayMin = 0.5f;
+    private const float PassengerSpawnDelayMax = 2.0f;
 
-    // Under-Station Metrics
-    public int TicketMachineFailures { get; set; } = 0;
-    public float EscalatorWeightStrain { get; set; } = 10.0f;
+    public PackedScene PassengerScene { get; private set; }
 
-    // Inside-Cars Metrics
-    public float CarCrowdDensity { get; set; } = 2.0f;
-    public float ACFailureChance { get; set; } = 0.05f;
-    public bool ACFailed { get; set; } = false;
+    public TrainRoundState CurrentState { get; private set; } = TrainRoundState.WaitingForTrain;
+    public int CurrentRound { get; private set; } = 1;
+    public float CurrentRoundDuration { get; private set; } = BaseRoundDuration;
+    public float RoundTimeRemaining { get; private set; } = BaseRoundDuration;
+    public float RoundElapsed { get; private set; } = 0.0f;
+    public float CurrentRoundScore { get; private set; } = 0.0f;
+    public float CumulativeScore { get; private set; } = 0.0f;
+    public bool CurrentRoundBalanced { get; private set; } = false;
+    public string RoundResultText { get; private set; } = "";
+    public float BalanceMeter { get; private set; } = 100.0f;
 
-    public PackedScene AgentScene { get; set; }
-
-    // Agents
-    public List<GodotCommuterAgent> Commuters { get; } = new List<GodotCommuterAgent>();
-    private float _spawnerTimer = 0.0f;
-    private Random _random = new Random(512);
-
-    // Crisis timers
-    public float TicketMachineBreakTimer { get; set; } = 15.0f;
-    public float ACBreakdownTimer { get; set; } = 25.0f;
-    public float PickpocketSpawnTimer { get; set; } = 12.0f;
-
-    // Tactical interventions
-    public float FanCooldownTimer { get; set; } = 0.0f;
-    public bool FanActiveOnPlatform { get; set; } = false;
-    public bool FanActiveOnCars { get; set; } = false;
-
-    // Revenue
-    public int TotalPassengersTransported { get; set; } = 0;
-    public float TotalFareRevenue { get; set; } = 0.0f;
-
-    private float _viewportW = 800f;
-    private float _viewportH = 600f;
-
-    // For sending alerts to the UI
     public Action<string, Color> OnFlashNotification;
 
-    // Train Arrival Animation variables
-    private float _targetParkedX = 580.0f; // Moved right so the full length fits on-screen
-    private float _trainSpeed = 400.0f;    
-    private bool _isTrainParked = false;
-    private bool _hasInitializedArrival = false;
+    public List<GodotCommuterAgent> Passengers { get; } = new List<GodotCommuterAgent>();
+
+    private readonly int[] _laneCounts = new int[LaneCount];
+    private readonly Random _random = new Random();
+
+    private bool _roundEnding = false;
+    private float _transitionTimer = 0.0f;
+    private Node2D _platformScreen;
+    private Sprite2D _trainVehicle;
+    private bool _trainParkPositionCaptured = false;
+    private Vector2 _trainParkPosition = Vector2.Zero;
+    private Vector2 _trainOffscreenLeft = Vector2.Zero;
+    private Vector2 _trainOffscreenRight = Vector2.Zero;
+    private Vector2 _viewportSize = new Vector2(800f, 600f);
+    private int _nextSpawnOrder = 0;
+    private int _pendingPassengerSpawns = 0;
+    private float _nextPassengerSpawnDelay = 0.0f;
 
     public override void _Ready()
     {
         Instance = this;
-        
-        AgentScene = GD.Load<PackedScene>("res://GodotCommuterAgent.tscn");
-        
-        // Register InputMap dynamically
-        BindInput("view_1", Key.Key1, Key.Kp1);
-        BindInput("view_2", Key.Key2, Key.Kp2);
-        BindInput("view_3", Key.Key3, Key.Kp3);
-        BindInput("action_d", Key.D);
-        BindInput("action_f", Key.F);
-        BindInput("action_g", Key.G);
-        BindInput("action_e", Key.E);
-        BindInput("action_p", Key.P);
-        BindInput("action_q", Key.Q);
-        BindInput("action_s", Key.S);
-        BindInput("action_a", Key.A);
-        
-        TicketMachineBreakTimer = 15.0f + (float)_random.NextDouble() * 5.0f;
-        CallDeferred(nameof(UpdateScreenVisibilities));
-    }
-
-    private void BindInput(string actionName, Key key1, Key? key2 = null)
-    {
-        if (!InputMap.HasAction(actionName))
-        {
-            InputMap.AddAction(actionName);
-        }
-        
-        var evt1 = new InputEventKey();
-        evt1.Keycode = key1;
-        InputMap.ActionAddEvent(actionName, evt1);
-
-        if (key2.HasValue)
-        {
-            var evt2 = new InputEventKey();
-            evt2.Keycode = key2.Value;
-            InputMap.ActionAddEvent(actionName, evt2);
-        }
-    }
-    
-    public void ResetSimulation()
-    {
-        GlobalCommuterRage = 0.0f;
-        DailyBudget = 5000.0f;
-        ActivePerspective = Perspective.PLATFORM;
-        RiotErupted = false;
-        ShiftTimer = 0.0f;
-
-        PlatformDensity = 0.5f;
-        TrainDelayTimer = 0.0f;
-        PickpocketCount = 0;
-        PriorityQueueViolationRate = 0.05f;
-
-        TicketMachineFailures = 0;
-        EscalatorWeightStrain = 10.0f;
-
-        CarCrowdDensity = 2.0f;
-        ACFailureChance = 0.05f;
-        ACFailed = false;
-
-        foreach (var c in Commuters)
-        {
-            c.QueueFree();
-        }
-        Commuters.Clear();
-        _spawnerTimer = 0.0f;
-
-        TicketMachineBreakTimer = 15.0f + (float)_random.NextDouble() * 5.0f;
-        ACBreakdownTimer = 25.0f;
-        PickpocketSpawnTimer = 12.0f;
-        FanCooldownTimer = 0.0f;
-        FanActiveOnPlatform = false;
-        FanActiveOnCars = false;
-        TotalPassengersTransported = 0;
-        TotalFareRevenue = 0.0f;
-
-        // Reset arrival state fields
-        _isTrainParked = false;
-        _hasInitializedArrival = false;
-        
-        OnFlashNotification?.Invoke("SWITCHBOARD ONLINE! [1]Platform [2]Under-Station [3]Cars", Colors.DarkCyan);
+        PassengerScene = GD.Load<PackedScene>("res://GodotCommuterAgent.tscn");
+        CallDeferred(nameof(BeginFirstRound));
     }
 
     public override void _Process(double delta)
     {
         float d = (float)delta;
-        
-        if (RiotErupted) return;
-
         UpdateViewportBounds();
+        ResolveSceneReferences();
 
-        // --- TRAIN ARRIVAL SYSTEM INTEGRATION ---
-        if (ActivePerspective == Perspective.PLATFORM)
+        if (CurrentState == TrainRoundState.WaitingForTrain)
         {
-            // Ensure the platform screen reference is valid
-            ResolveScreenReferences();
+            return;
+        }
 
-            // Locate the TrainVehicle using FindChild dynamically inside the verified PlatformScreen
-            var TrainVehicle = PlatformScreen?.FindChild("TrainVehicle", true, false) as Sprite2D;
+        if (CurrentState == TrainRoundState.Boarding)
+        {
+            RoundElapsed += d;
+            RoundTimeRemaining = Math.Max(0.0f, RoundTimeRemaining - d);
+            UpdateTrainPosition(false);
+            ProcessPassengerSpawns(d);
+            UpdateWalkingPassengers();
+            LayoutPassengers();
 
-            if (TrainVehicle != null)
+            if (RoundTimeRemaining <= 0.0f)
             {
-                // First-frame initialization: Snap completely off-screen left (-1000) so it travels left-to-right
-                if (!_hasInitializedArrival)
-                {
-                    TrainVehicle.Position = new Vector2(-1000f, TrainVehicle.Position.Y);
-                    _isTrainParked = false;
-                    _hasInitializedArrival = true;
-                }
+                FinalizeRound();
+            }
+        }
+        else if (CurrentState == TrainRoundState.Scoring)
+        {
+            _transitionTimer += d;
+            UpdateTrainPosition(true);
 
-                // Smoothly slide forward from left to right
-                if (!_isTrainParked)
+            if (_transitionTimer >= TrainDepartureSeconds)
+            {
+                StartNextRound();
+            }
+        }
+    }
+
+    public void ResetSimulation()
+    {
+        ClearPassengers();
+        CurrentRound = 1;
+        CurrentState = TrainRoundState.WaitingForTrain;
+        CurrentRoundDuration = BaseRoundDuration;
+        RoundTimeRemaining = BaseRoundDuration;
+        RoundElapsed = 0.0f;
+        CurrentRoundScore = 0.0f;
+        CumulativeScore = 0.0f;
+        CurrentRoundBalanced = false;
+        RoundResultText = "";
+        BalanceMeter = 100.0f;
+        _roundEnding = false;
+        _transitionTimer = 0.0f;
+        _nextSpawnOrder = 0;
+        _pendingPassengerSpawns = 0;
+        _nextPassengerSpawnDelay = 0.0f;
+        OnFlashNotification?.Invoke("TRAIN SYSTEM RESET", Colors.DarkCyan);
+        BeginRound();
+    }
+
+    private void BeginFirstRound()
+    {
+        ResolveSceneReferences();
+        CaptureTrainParkPosition();
+        BeginRound();
+    }
+
+    private void BeginRound()
+    {
+        ClearPassengers();
+        ResolveSceneReferences();
+        CaptureTrainParkPosition();
+
+        CurrentRoundDuration = Math.Max(MinimumRoundDuration, BaseRoundDuration - ((CurrentRound - 1) * RoundDurationDecrement));
+        RoundTimeRemaining = CurrentRoundDuration;
+        RoundElapsed = 0.0f;
+        CurrentRoundScore = 0.0f;
+        CurrentRoundBalanced = false;
+        RoundResultText = $"ROUND {CurrentRound} IN SESSION";
+        BalanceMeter = 100.0f;
+        _roundEnding = false;
+        _transitionTimer = 0.0f;
+
+        PreparePassengerSpawns();
+        LayoutPassengers();
+        PositionTrainForArrival();
+
+        CurrentState = TrainRoundState.Boarding;
+        OnFlashNotification?.Invoke($"🚉 ROUND {CurrentRound} STARTED - BALANCE THE 5 LINES", Colors.SteelBlue);
+    }
+
+    private void StartNextRound()
+    {
+        CurrentRound++;
+        BeginRound();
+    }
+
+    private void FinalizeRound()
+    {
+        if (_roundEnding)
+        {
+            return;
+        }
+
+        _roundEnding = true;
+        CurrentState = TrainRoundState.Scoring;
+        _transitionTimer = 0.0f;
+
+        EvaluateRound();
+        RoundResultText = CurrentRoundBalanced
+            ? $"ROUND {CurrentRound} BALANCED | SCORE {CurrentRoundScore:0}"
+            : $"ROUND {CurrentRound} UNBALANCED | SCORE {CurrentRoundScore:0}";
+
+        CumulativeScore += CurrentRoundScore;
+        OnFlashNotification?.Invoke(
+            CurrentRoundBalanced
+                ? $"✅ TRAIN BALANCED - SCORE {CurrentRoundScore:0}"
+                : $"⚠️ TRAIN UNBALANCED - SCORE {CurrentRoundScore:0}",
+            CurrentRoundBalanced ? Colors.DarkGreen : Colors.DarkOrange);
+    }
+
+    private void EvaluateRound()
+    {
+        int passengerCount = Passengers.Count;
+        int maxCount = 0;
+        int minCount = int.MaxValue;
+        int totalCount = 0;
+
+        for (int i = 0; i < LaneCount; i++)
+        {
+            int count = _laneCounts[i];
+            totalCount += count;
+            maxCount = Math.Max(maxCount, count);
+            minCount = Math.Min(minCount, count);
+        }
+
+        float average = passengerCount > 0 ? (float)totalCount / LaneCount : 0.0f;
+        float totalDeviation = 0.0f;
+
+        for (int i = 0; i < LaneCount; i++)
+        {
+            totalDeviation += MathF.Abs(_laneCounts[i] - average);
+        }
+
+        float worstCaseDeviation = Math.Max(1.0f, passengerCount * 1.6f);
+        float normalizedDeviation = Math.Clamp(totalDeviation / worstCaseDeviation, 0.0f, 1.0f);
+
+        CurrentRoundScore = MathF.Round((1.0f - normalizedDeviation) * 100.0f);
+        CurrentRoundBalanced = (maxCount - minCount) <= 1;
+        BalanceMeter = Math.Clamp(100.0f - (normalizedDeviation * 100.0f), 0.0f, 100.0f);
+    }
+
+    private void PreparePassengerSpawns()
+    {
+        _pendingPassengerSpawns = LaneCount * 3;
+        _nextPassengerSpawnDelay = GetRandomPassengerSpawnDelay();
+    }
+
+    private void ProcessPassengerSpawns(float delta)
+    {
+        if (CurrentState != TrainRoundState.Boarding || _pendingPassengerSpawns <= 0)
+        {
+            return;
+        }
+
+        _nextPassengerSpawnDelay -= delta;
+
+        while (_pendingPassengerSpawns > 0 && _nextPassengerSpawnDelay <= 0.0f)
+        {
+            SpawnPassenger();
+            _pendingPassengerSpawns--;
+
+            if (_pendingPassengerSpawns > 0)
+            {
+                _nextPassengerSpawnDelay += GetRandomPassengerSpawnDelay();
+            }
+        }
+    }
+
+    private int GetNextSlotIndex(int laneIndex)
+    {
+        int reservedSlot = -1;
+        for (int i = 0; i < Passengers.Count; i++)
+        {
+            var p = Passengers[i];
+            if (IsInstanceValid(p) && p.IsDragging && p.DragSourceLaneIndex == laneIndex)
+            {
+                reservedSlot = p.LaneSlotIndex;
+                break;
+            }
+        }
+
+        List<GodotCommuterAgent> lanePassengers = GetLanePassengers(laneIndex);
+        int currentSlot = 0;
+        for (int i = 0; i < lanePassengers.Count; i++)
+        {
+            if (reservedSlot >= 0 && currentSlot == reservedSlot)
+            {
+                currentSlot++;
+            }
+            currentSlot++;
+        }
+        if (reservedSlot >= 0 && currentSlot == reservedSlot)
+        {
+            currentSlot++;
+        }
+        return currentSlot;
+    }
+
+    private void SpawnPassenger()
+    {
+        if (PassengerScene == null)
+        {
+            return;
+        }
+
+        var passenger = PassengerScene.Instantiate<GodotCommuterAgent>();
+        passenger.SpawnOrder = _nextSpawnOrder++;
+        passenger.LaneIndex = -1;
+        passenger.TargetLaneIndex = _random.Next(LaneCount);
+        passenger.LaneSlotIndex = -1;
+        passenger.LegacyMovementEnabled = false;
+        passenger.IsTrainPassenger = true;
+        passenger.IsDragging = false;
+        passenger.IsWalkingToLane = true;
+
+        Vector2 startPosition = GetLaneEntryPosition();
+        float laneX = GetLaneSlotPosition(passenger.TargetLaneIndex, 0).X;
+        Vector2 targetPosition = new Vector2(laneX, startPosition.Y);
+        passenger.BeginLaneWalk(startPosition, targetPosition);
+
+        AddPassengerToWorld(passenger);
+        Passengers.Add(passenger);
+    }
+
+    private void UpdateWalkingPassengers()
+    {
+        for (int i = 0; i < Passengers.Count; i++)
+        {
+            var passenger = Passengers[i];
+            if (!IsInstanceValid(passenger) || passenger.IsDragging || passenger.LaneIndex != -1)
+            {
+                continue;
+            }
+
+            if (passenger.IsWalkingToLane && passenger.TargetLaneIndex >= 0 && passenger.TargetLaneIndex < LaneCount)
+            {
+                float laneX = GetLaneSlotPosition(passenger.TargetLaneIndex, 0).X;
+                if (MathF.Abs(passenger.Position.X - laneX) <= 2.0f)
                 {
-                    float targetX = 580f; // Adjusted target coordinate so the rear carriage clears the border
-                    float speed = 400f;   // Travel speed in pixels per second
+                    passenger.LaneIndex = passenger.TargetLaneIndex;
+                    passenger.LaneSlotIndex = GetNextSlotIndex(passenger.LaneIndex);
+                    _laneCounts[passenger.LaneIndex]++;
                     
-                    TrainVehicle.Position = new Vector2(Mathf.MoveToward(TrainVehicle.Position.X, targetX, speed * d), TrainVehicle.Position.Y);
-
-                    if (Mathf.IsEqualApprox(TrainVehicle.Position.X, targetX))
-                    {
-                        _isTrainParked = true;
-                        OnFlashNotification?.Invoke("🚉 TRAIN PARKED. Commuters may approach doors.", Colors.SpringGreen);
-                    }
+                    Vector2 slotPosition = GetLaneSlotPosition(passenger.LaneIndex, passenger.LaneSlotIndex);
+                    passenger.SetLaneWalkTarget(slotPosition);
                 }
             }
         }
+    }
+
+    private float GetRandomPassengerSpawnDelay()
+    {
+        return (float)(_random.NextDouble() * (PassengerSpawnDelayMax - PassengerSpawnDelayMin) + PassengerSpawnDelayMin);
+    }
+
+    private void AddPassengerToWorld(GodotCommuterAgent passenger)
+    {
+        Node parent = _platformScreen ?? GetTree().CurrentScene;
+        parent?.AddChild(passenger);
+    }
+
+    private void ClearPassengers()
+    {
+        foreach (var passenger in Passengers)
+        {
+            if (IsInstanceValid(passenger))
+            {
+                passenger.QueueFree();
+            }
+        }
+
+        Passengers.Clear();
+        Array.Clear(_laneCounts, 0, _laneCounts.Length);
+    }
+
+    private void LayoutPassengers()
+    {
+        UpdateViewportBounds();
+        int preservedLaneIndex = GetActiveDraggingSourceLaneIndex();
+
+        for (int lane = 0; lane < LaneCount; lane++)
+        {
+            RebuildLaneOrdering(lane, lane == preservedLaneIndex);
+        }
+    }
+
+    private void RebuildLaneOrdering(int laneIndex, bool preserveSlotPositions)
+    {
+        List<GodotCommuterAgent> lanePassengers = GetLanePassengers(laneIndex);
+
+        int reservedSlot = -1;
+        for (int i = 0; i < Passengers.Count; i++)
+        {
+            var p = Passengers[i];
+            if (IsInstanceValid(p) && p.IsDragging && p.DragSourceLaneIndex == laneIndex)
+            {
+                reservedSlot = p.LaneSlotIndex;
+                break;
+            }
+        }
+
+        int currentSlot = 0;
+        for (int i = 0; i < lanePassengers.Count; i++)
+        {
+            var passenger = lanePassengers[i];
+
+            if (reservedSlot >= 0 && currentSlot == reservedSlot)
+            {
+                currentSlot++;
+            }
+
+            int slotIndex = currentSlot;
+
+            passenger.LaneSlotIndex = slotIndex;
+            passenger.ZIndex = slotIndex;
+
+            Vector2 slotPosition = GetLaneSlotPosition(laneIndex, slotIndex);
+
+            if (passenger.IsWalkingToLane)
+            {
+                passenger.SetLaneWalkTarget(slotPosition);
+            }
+            else if (!passenger.IsDragging)
+            {
+                passenger.Position = slotPosition;
+            }
+
+            currentSlot++;
+        }
+    }
+
+    private List<GodotCommuterAgent> GetLanePassengers(int laneIndex)
+    {
+        var lanePassengers = new List<GodotCommuterAgent>();
+
+        for (int i = 0; i < Passengers.Count; i++)
+        {
+            var passenger = Passengers[i];
+            if (!IsInstanceValid(passenger) || passenger.IsDragging || passenger.LaneIndex != laneIndex)
+            {
+                continue;
+            }
+
+            lanePassengers.Add(passenger);
+        }
+
+        lanePassengers.Sort((left, right) =>
+        {
+            int laneSlotComparison = left.LaneSlotIndex.CompareTo(right.LaneSlotIndex);
+            if (laneSlotComparison != 0)
+            {
+                return laneSlotComparison;
+            }
+
+            return left.SpawnOrder.CompareTo(right.SpawnOrder);
+        });
+
+        return lanePassengers;
+    }
+
+    private int GetActiveDraggingSourceLaneIndex()
+    {
+        for (int i = 0; i < Passengers.Count; i++)
+        {
+            var passenger = Passengers[i];
+            if (IsInstanceValid(passenger) && passenger.IsDragging)
+            {
+                return passenger.DragSourceLaneIndex;
+            }
+        }
+
+        return -1;
+    }
+
+    public Vector2 GetLaneSlotPosition(int laneIndex, int slotIndex)
+    {
+        float availableWidth = Math.Max(120.0f, _viewportSize.X - (LaneLeftMargin + LaneRightMargin));
+        float laneSpacing = availableWidth / (LaneCount - 1);
+        float x = LaneLeftMargin + (laneIndex * laneSpacing);
+        float y = LaneTopOffset + (slotIndex * LaneSpacing);
+        return new Vector2(x, y);
+    }
+
+    public int GetLaneFromScreenX(float x)
+    {
+        float availableWidth = Math.Max(120.0f, _viewportSize.X - (LaneLeftMargin + LaneRightMargin));
+        float laneSpacing = availableWidth / (LaneCount - 1);
+        float clampedX = Math.Clamp(x, LaneLeftMargin, LaneLeftMargin + availableWidth);
+
+        int lane = (int)MathF.Round((clampedX - LaneLeftMargin) / laneSpacing);
+        return Math.Clamp(lane, 0, LaneCount - 1);
+    }
+
+    public int GetLowestLaneIndex()
+    {
+        int lowestLane = 0;
+        int lowestCount = int.MaxValue;
+
+        for (int i = 0; i < LaneCount; i++)
+        {
+            if (_laneCounts[i] < lowestCount)
+            {
+                lowestCount = _laneCounts[i];
+                lowestLane = i;
+            }
+        }
+
+        return lowestLane;
+    }
+
+    public int[] GetLaneCounts()
+    {
+        int[] copy = new int[LaneCount];
+        Array.Copy(_laneCounts, copy, LaneCount);
+        return copy;
+    }
+
+    public bool TryStartDraggingPassenger(Vector2 mousePosition, out GodotCommuterAgent passenger)
+    {
+        passenger = null;
+
+        if (CurrentState != TrainRoundState.Boarding)
+        {
+            return false;
+        }
+
+        GodotCommuterAgent bestCandidate = null;
+        float bestDistance = float.MaxValue;
+
+        for (int i = Passengers.Count - 1; i >= 0; i--)
+        {
+            var candidate = Passengers[i];
+            if (!IsInstanceValid(candidate) || candidate.IsDragging)
+            {
+                continue;
+            }
+
+            if (!candidate.ContainsPoint(mousePosition, 28.0f))
+            {
+                continue;
+            }
+
+            float distance = candidate.GlobalPosition.DistanceTo(mousePosition);
+            if (distance >= bestDistance)
+            {
+                continue;
+            }
+
+            bestCandidate = candidate;
+            bestDistance = distance;
+        }
+
+        if (bestCandidate == null)
+        {
+            return false;
+        }
+
+        passenger = bestCandidate;
+        if (bestCandidate.LaneIndex >= 0 && bestCandidate.LaneIndex < LaneCount)
+        {
+            bestCandidate.DragSourceLaneIndex = bestCandidate.LaneIndex;
+            _laneCounts[bestCandidate.LaneIndex] = Math.Max(0, _laneCounts[bestCandidate.LaneIndex] - 1);
+        }
+
+        bestCandidate.LaneIndex = -1;
+        bestCandidate.IsDragging = true;
+        bestCandidate.IsWalkingToLane = false;
+        bestCandidate.LegacyMovementEnabled = false;
+        bestCandidate.ZIndex = 1000;
+        LayoutPassengers();
+        return true;
+    }
+
+    public void UpdateDraggedPassenger(GodotCommuterAgent passenger, Vector2 mousePosition)
+    {
+        if (passenger == null || !IsInstanceValid(passenger))
+        {
+            return;
+        }
+
+        passenger.Position = mousePosition;
+        passenger.ZIndex = 1000;
+    }
+
+    public void CommitDraggedPassenger(GodotCommuterAgent passenger, Vector2 mousePosition)
+    {
+        if (passenger == null || !IsInstanceValid(passenger))
+        {
+            return;
+        }
+
+        int previousLane = passenger.DragSourceLaneIndex;
+        int targetLane = GetLaneFromScreenX(mousePosition.X);
+        int targetSlot = GetLaneInsertIndex(targetLane, mousePosition.Y);
+
+        passenger.LaneIndex = targetLane;
+        passenger.LaneSlotIndex = targetSlot;
+        passenger.DragSourceLaneIndex = -1;
+        passenger.IsDragging = false;
+        passenger.IsWalkingToLane = false;
+        passenger.Position = GetLaneSlotPosition(targetLane, targetSlot);
+        _laneCounts[targetLane]++;
+
+        if (previousLane >= 0 && previousLane < LaneCount && previousLane != targetLane)
+        {
+            RebuildLaneOrdering(previousLane, false);
+        }
+
+        RebuildLaneOrdering(targetLane, false);
+
+        LayoutPassengers();
+    }
+
+    public void CancelDraggedPassenger(GodotCommuterAgent passenger)
+    {
+        if (passenger == null || !IsInstanceValid(passenger))
+        {
+            return;
+        }
+
+        int lane = GetLowestLaneIndex();
+        passenger.LaneIndex = lane;
+        passenger.IsDragging = false;
+        _laneCounts[lane]++;
+        LayoutPassengers();
+    }
+
+    private int GetLaneInsertIndex(int laneIndex, float dropY)
+    {
+        List<GodotCommuterAgent> lanePassengers = GetLanePassengers(laneIndex);
+
+        if (lanePassengers.Count == 0)
+        {
+            return 0;
+        }
+
+        int insertIndex = 0;
+
+        for (int i = 0; i < lanePassengers.Count; i++)
+        {
+            float slotCenterY = GetLaneSlotPosition(laneIndex, lanePassengers[i].LaneSlotIndex).Y;
+            float midpointY = slotCenterY + (LaneSpacing * 0.5f);
+            if (dropY > midpointY)
+            {
+                insertIndex = i + 1;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return Math.Clamp(insertIndex, 0, lanePassengers.Count);
+    }
+
+    private Vector2 GetLaneEntryPosition()
+    {
+        UpdateViewportBounds();
+        return new Vector2(_viewportSize.X + SpawnOffset, _viewportSize.Y - (SpawnOffset * 1.5f));
+    }
+
+    private void ResolveSceneReferences()
+    {
+        var currentScene = GetTree().CurrentScene;
+        if (currentScene == null)
+        {
+            return;
+        }
+
+        _platformScreen ??= currentScene.FindChild("Platform_Screen", true, false) as Node2D;
+        _trainVehicle ??= currentScene.FindChild("TrainVehicle", true, false) as Sprite2D;
+        CaptureTrainParkPosition();
+    }
+
+    private void CaptureTrainParkPosition()
+    {
+        if (_trainVehicle == null || _trainParkPositionCaptured)
+        {
+            return;
+        }
+
+        _trainParkPosition = _trainVehicle.Position;
+        _trainOffscreenLeft = new Vector2(_trainParkPosition.X - Math.Max(700.0f, _viewportSize.X), _trainParkPosition.Y);
+        _trainOffscreenRight = new Vector2(_trainParkPosition.X + Math.Max(700.0f, _viewportSize.X), _trainParkPosition.Y);
+        _trainVehicle.Position = _trainOffscreenLeft;
+        _trainParkPositionCaptured = true;
+    }
+
+    private void PositionTrainForArrival()
+    {
+        if (_trainVehicle == null)
+        {
+            return;
+        }
+
+        _trainVehicle.Position = _trainOffscreenLeft;
+    }
+
+    private void UpdateTrainPosition(bool leaving)
+    {
+        if (_trainVehicle == null)
+        {
+            return;
+        }
+
+        if (!leaving)
+        {
+            float progress = Math.Clamp(RoundElapsed / TrainArrivalSeconds, 0.0f, 1.0f);
+            _trainVehicle.Position = _trainOffscreenLeft.Lerp(_trainParkPosition, progress);
+        }
         else
         {
-            // Reset initialization flag when player changes view context to allow repeat animations
-            _hasInitializedArrival = false;
+            float progress = Math.Clamp(_transitionTimer / TrainDepartureSeconds, 0.0f, 1.0f);
+            _trainVehicle.Position = _trainParkPosition.Lerp(_trainOffscreenRight, progress);
         }
-        // ----------------------------------------
-        
-        ProcessSpawning(d);
-        UpdateMetrics(d);
-        ProcessCrisisCycles(d);
-        
-        // Remove freed instances if any
-        Commuters.RemoveAll(c => !IsInstanceValid(c));
     }
 
     private void UpdateViewportBounds()
     {
-        Vector2 scaleSize = GetViewport().GetVisibleRect().Size;
-        _viewportW = scaleSize.X;
-        _viewportH = scaleSize.Y;
-    }
-
-    private void ProcessSpawning(float delta)
-    {
-        float viewY = _viewportH * 0.18f + 3;
-        float viewH = _viewportH * 0.72f - 6;
-
-        _spawnerTimer -= delta;
-        if (_spawnerTimer <= 0.0f)
-        {
-            if (AgentScene != null)
-            {
-                var newAgent = AgentScene.Instantiate<GodotCommuterAgent>();
-                newAgent.Position = new Vector2(25f, viewY + viewH * 0.5f + _random.Next(-40, 40));
-                newAgent.CurrentPerspective = Perspective.UNDER_STATION;
-                newAgent.MovementSpeed = 80.0f + (float)_random.NextDouble() * 70.0f;
-                newAgent.IndividualRage = 0.0f;
-                newAgent.IsPriority = _random.NextDouble() < 0.15;
-                newAgent.TargetPosition = new Vector2(_viewportW - 190, viewY + viewH * 0.5f + _random.Next(-30, 30));
-                
-                AddChild(newAgent);
-                Commuters.Add(newAgent);
-            }
-            
-            _spawnerTimer = 1.5f + (float)_random.NextDouble() * 1.5f;
-        }
-    }
-
-    private void UpdateMetrics(float delta)
-    {
-        int underStationCount = 0;
-        int platformCount = 0;
-        int insideCarsCount = 0;
-        
-        foreach (var agent in Commuters)
-        {
-            if (agent.CurrentPerspective == Perspective.UNDER_STATION) underStationCount++;
-            else if (agent.CurrentPerspective == Perspective.PLATFORM) platformCount++;
-            else if (agent.CurrentPerspective == Perspective.INSIDE_CARS) insideCarsCount++;
-        }
-
-        PlatformDensity = Mathf.Min(10.0f, 0.5f + platformCount * 0.35f);
-        CarCrowdDensity = Mathf.Min(10.0f, 0.5f + insideCarsCount * 0.35f);
-
-        bool underStationOverloaded = underStationCount > 10;
-        bool platformOverloaded = PlatformDensity > 5.0f;
-        bool insideCarsOverloaded = CarCrowdDensity > 7.5f;
-
-        float viewY = _viewportH * 0.18f + 3;
-        float viewH = _viewportH * 0.72f - 6;
-
-        foreach (var agent in Commuters)
-        {
-            if (agent.IsFrozen)
-            {
-                if (TicketMachineFailures == 0) agent.IsFrozen = false;
-                continue;
-            }
-
-            float multiplier = 1.0f;
-            if (agent.CurrentPerspective == Perspective.UNDER_STATION && (underStationOverloaded || TicketMachineFailures > 0))
-                multiplier = 0.30f;
-            else if (agent.CurrentPerspective == Perspective.PLATFORM && platformOverloaded)
-                multiplier = 0.30f;
-            else if (agent.CurrentPerspective == Perspective.INSIDE_CARS && insideCarsOverloaded)
-                multiplier = 0.30f;
-                
-            agent.TargetMultiplier = multiplier;
-
-            Vector2 dir = agent.TargetPosition - agent.Position;
-            if (dir.Length() <= 8.0f)
-            {
-                if (agent.CurrentPerspective == Perspective.UNDER_STATION)
-                {
-                    agent.CurrentPerspective = Perspective.PLATFORM;
-                    int targetX = 50 + _random.Next((int)_viewportW - 150);
-                    int targetY = (int)(viewY + 115);
-                    agent.Position = new Vector2(targetX, viewY + viewH - 45);
-                    agent.TargetPosition = new Vector2(targetX, targetY);
-                }
-            }
-        }
-
-        TrainDelayTimer += delta;
-        ShiftTimer += delta;
-        PriorityQueueViolationRate = Math.Min(1.0f, PriorityQueueViolationRate + 0.015f * delta);
-        EscalatorWeightStrain = Math.Min(100.0f, EscalatorWeightStrain + (2.5f + TicketMachineFailures * 1.5f) * delta);
-
-        // Rage calculation
-        float rageAddition = 0.0f;
-        if (TrainDelayTimer > 15.0f)
-        {
-            float excess = TrainDelayTimer - 15.0f;
-            float r = Mathf.Exp(excess * 0.15f) * 0.35f * delta;
-            if (FanActiveOnPlatform) r *= 0.5f;
-            rageAddition += r;
-        }
-        if (EscalatorWeightStrain > 75.0f)
-        {
-            float excess = EscalatorWeightStrain - 75.0f;
-            rageAddition += Mathf.Exp(excess * 0.09f) * 0.45f * delta;
-        }
-        if (CarCrowdDensity > 8.0f)
-        {
-            float excess = CarCrowdDensity - 8.0f;
-            float r = Mathf.Exp(excess * 0.5f) * 0.65f * delta;
-            if (FanActiveOnCars) r *= 0.5f;
-            rageAddition += r;
-        }
-        rageAddition += PickpocketCount * 0.25f * delta;
-        rageAddition += TicketMachineFailures * 0.4f * delta;
-
-        GlobalCommuterRage += rageAddition;
-
-        if (TrainDelayTimer <= 15.0f && EscalatorWeightStrain <= 75.0f
-            && CarCrowdDensity <= 8.0f && !ACFailed && PickpocketCount == 0)
-        {
-            GlobalCommuterRage = Math.Max(0.0f, GlobalCommuterRage - 1.5f * delta);
-        }
-
-        if (GlobalCommuterRage >= 100.0f) 
-        {
-            GlobalCommuterRage = 100.0f;
-            RiotErupted = true;
-        }
-
-        DailyBudget = Math.Max(0.0f, DailyBudget - 8.0f * delta);
-    }
-
-    private void ProcessCrisisCycles(float delta)
-    {
-        // Ticket Machine
-        TicketMachineBreakTimer -= delta;
-        if (TicketMachineBreakTimer <= 0.0f && TicketMachineFailures < 6)
-        {
-            TicketMachineFailures++;
-            TicketMachineBreakTimer = 15.0f + (float)_random.NextDouble() * 5.0f;
-            int frozenCount = 0;
-            foreach (var agent in Commuters)
-            {
-                if (agent.CurrentPerspective == Perspective.UNDER_STATION && !agent.IsFrozen && frozenCount < 3)
-                {
-                    agent.IsFrozen = true;
-                    frozenCount++;
-                }
-            }
-            OnFlashNotification?.Invoke($"⚠️ TICKET MACHINE #{TicketMachineFailures} DOWN! {frozenCount} stuck!", Colors.Crimson);
-        }
-
-        // Pickpockets
-        PickpocketSpawnTimer -= delta;
-        if (PickpocketSpawnTimer <= 0.0f)
-        {
-            PickpocketSpawnTimer = 10.0f + (float)_random.NextDouble() * 5.0f;
-            List<int> candidates = new List<int>();
-            for (int i = 0; i < Commuters.Count; i++)
-            {
-                var a = Commuters[i];
-                if (a.CurrentPerspective == Perspective.PLATFORM && !a.IsPriority && !a.IsPickpocket)
-                    candidates.Add(i);
-            }
-            if (candidates.Count > 0)
-            {
-                int idx = candidates[_random.Next(candidates.Count)];
-                Commuters[idx].IsPickpocket = true;
-                PickpocketCount++;
-            }
-        }
-
-        for (int i = 0; i < Commuters.Count; i++)
-        {
-            var thief = Commuters[i];
-            if (!thief.IsPickpocket || thief.CurrentPerspective != Perspective.PLATFORM) continue;
-            for (int j = 0; j < Commuters.Count; j++)
-            {
-                if (i == j) continue;
-                var victim = Commuters[j];
-                if (victim.CurrentPerspective != Perspective.PLATFORM) continue;
-                if (thief.Position.DistanceTo(victim.Position) < 30.0f)
-                {
-                    GlobalCommuterRage = Math.Min(100.0f, GlobalCommuterRage + 10.0f * delta);
-                    victim.IndividualRage += 5.0f * delta;
-                    break;
-                }
-            }
-        }
-
-        // AC Failure
-        if (!ACFailed)
-        {
-            ACBreakdownTimer -= delta;
-            if (ACBreakdownTimer <= 0.0f)
-            {
-                ACFailed = true;
-                ACBreakdownTimer = 25.0f;
-                OnFlashNotification?.Invoke("🔥 AC COMPRESSOR FAILURE! Temps rising!", Colors.Crimson);
-            }
-        }
-        else
-        {
-            int insideCarsCount = 0;
-            foreach (var a in Commuters) if (a.CurrentPerspective == Perspective.INSIDE_CARS) insideCarsCount++;
-            float acRage = 1.5f * insideCarsCount * delta;
-            GlobalCommuterRage = Math.Min(100.0f, GlobalCommuterRage + acRage);
-        }
-
-        // Fans
-        if (FanCooldownTimer > 0.0f)
-        {
-            FanCooldownTimer -= delta;
-            if (FanCooldownTimer <= 0.0f)
-            {
-                FanActiveOnPlatform = false;
-                FanActiveOnCars = false;
-                FanCooldownTimer = 0.0f;
-            }
-        }
-    }
-
-    private void ResolveScreenReferences()
-    {
-        if (ConcourseScreen == null || !IsInstanceValid(ConcourseScreen))
-        {
-            ConcourseScreen = GetTree().Root.FindChild("Concourse_Screen", true, false) as Node2D;
-        }
-        if (PlatformScreen == null || !IsInstanceValid(PlatformScreen))
-        {
-            PlatformScreen = GetTree().Root.FindChild("Platform_Screen", true, false) as Node2D;
-        }
-        if (TrainScreen == null || !IsInstanceValid(TrainScreen))
-        {
-            TrainScreen = GetTree().Root.FindChild("Train_Screen", true, false) as Node2D;
-        }
-    }
-
-    public void UpdateScreenVisibilities()
-    {
-        ResolveScreenReferences();
-        if (ConcourseScreen != null) ConcourseScreen.Visible = (_activePerspective == Perspective.UNDER_STATION);
-        if (PlatformScreen != null) PlatformScreen.Visible = (_activePerspective == Perspective.PLATFORM);
-        if (TrainScreen != null) TrainScreen.Visible = (_activePerspective == Perspective.INSIDE_CARS);
-
-        foreach (var agent in Commuters)
-        {
-            if (IsInstanceValid(agent))
-            {
-                agent.Visible = (agent.CurrentPerspective == _activePerspective);
-            }
-        }
+        _viewportSize = GetViewport().GetVisibleRect().Size;
     }
 }

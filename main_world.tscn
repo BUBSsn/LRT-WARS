@@ -735,11 +735,12 @@ sources/0 = SubResource("TileSetAtlasSource_whfra")
 [node name="MainWorld" type="Node2D" unique_id=901706504]
 script = ExtResource("1_itk02")
 
-[node name="HUD" type="CanvasLayer" parent="." unique_id=2089216870 node_paths=PackedStringArray("RiotMeterBar", "BudgetLabel", "TimerLabel")]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=2089216870 node_paths=PackedStringArray("RiotMeterBar", "ScoreLabel", "TimerLabel", "AnnouncementLabel")]
 script = ExtResource("2_uoqbt")
 RiotMeterBar = NodePath("RiotMeter")
-BudgetLabel = NodePath("BudgetLabel")
+ScoreLabel = NodePath("BudgetLabel")
 TimerLabel = NodePath("TimerLabel")
+AnnouncementLabel = NodePath("AnnouncementLabel")
 
 [node name="RiotMeter" type="ProgressBar" parent="HUD" unique_id=1846182150]
 offset_left = 23.0
@@ -759,6 +760,12 @@ offset_top = 5.0
 offset_right = 370.0
 offset_bottom = 37.0
 
+[node name="AnnouncementLabel" type="Label" parent="HUD" unique_id=193887011]
+offset_left = 23.0
+offset_top = 36.0
+offset_right = 580.0
+offset_bottom = 60.0
+
 [node name="Concourse_Screen" type="Node2D" parent="." unique_id=2006622733]
 
 [node name="Concourse_Tiles" type="TileMapLayer" parent="Concourse_Screen" unique_id=641342577]
@@ -772,7 +779,7 @@ tile_set = SubResource("TileSet_agao6")
 tile_set = SubResource("TileSet_43o5b")
 
 [node name="TrainVehicle" type="Sprite2D" parent="Platform_Screen/Platform_Tiles" unique_id=1354009529]
-position = Vector2(593.0001, 154.99998)
+position = Vector2(519, 138)
 scale = Vector2(0.845098, 0.9318628)
 texture = ExtResource("4_3etub")
 
