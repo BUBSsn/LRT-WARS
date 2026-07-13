@@ -12,3 +12,4 @@
 /Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.pdb
 /Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.genruntimeconfig.cache
 /Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/ref/HomeworkCommute.dll
+/Users/antwone/game-jam/HomeworkCommute/obj/Debug/net10.0/HomeworkCommute.sourcelink.json

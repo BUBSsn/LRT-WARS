@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("HomeworkCommute")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c5ce7bea1c1f051c1d4353b6289a47fd26f7d783")]
 [assembly: System.Reflection.AssemblyProductAttribute("HomeworkCommute")]
 [assembly: System.Reflection.AssemblyTitleAttribute("HomeworkCommute")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
