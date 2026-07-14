@@ -21,6 +21,21 @@ public partial class SimulationManager : Node
 {
     public static SimulationManager Instance { get; private set; }
 
+    public Node2D ConcourseScreen { get; set; }
+    public Node2D PlatformScreen { get; set; }
+    public Node2D TrainScreen { get; set; }
+
+    private Perspective _activePerspective = Perspective.PLATFORM;
+    public Perspective ActivePerspective
+    {
+        get => _activePerspective;
+        set
+        {
+            _activePerspective = value;
+            UpdateScreenVisibilities();
+        }
+    }
+
     public const int LaneCount = 5;
 
     private const float BaseRoundDuration = 25.0f;
@@ -59,6 +74,8 @@ public partial class SimulationManager : Node
     private bool _roundEnding = false;
     private float _transitionTimer = 0.0f;
     private Node2D _platformScreen;
+    private Node2D _concourseScreen;
+    private Node2D _trainScreen;
     private Sprite2D _trainVehicle;
     private bool _trainParkPositionCaptured = false;
     private Vector2 _trainParkPosition = Vector2.Zero;
@@ -74,6 +91,7 @@ public partial class SimulationManager : Node
         Instance = this;
         PassengerScene = GD.Load<PackedScene>("res://GodotCommuterAgent.tscn");
         CallDeferred(nameof(BeginFirstRound));
+        CallDeferred(nameof(UpdateScreenVisibilities));
     }
 
     public override void _Process(double delta)
@@ -109,6 +127,37 @@ public partial class SimulationManager : Node
             if (_transitionTimer >= TrainDepartureSeconds)
             {
                 StartNextRound();
+            }
+        }
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        if (@event is InputEventKey keyEvent && keyEvent.Pressed && !keyEvent.Echo)
+        {
+            if (keyEvent.Keycode == Key.Key1 || keyEvent.Keycode == Key.Kp1)
+            {
+                if (ActivePerspective != Perspective.PLATFORM)
+                {
+                    ActivePerspective = Perspective.PLATFORM;
+                    OnFlashNotification?.Invoke("CAMERA: PLATFORM DECK 1", Colors.DarkBlue);
+                }
+            }
+            else if (keyEvent.Keycode == Key.Key2 || keyEvent.Keycode == Key.Kp2)
+            {
+                if (ActivePerspective != Perspective.UNDER_STATION)
+                {
+                    ActivePerspective = Perspective.UNDER_STATION;
+                    OnFlashNotification?.Invoke("CAMERA: UNDER-STATION CONCOURSE 2", Colors.DarkGoldenrod);
+                }
+            }
+            else if (keyEvent.Keycode == Key.Key3 || keyEvent.Keycode == Key.Kp3)
+            {
+                if (ActivePerspective != Perspective.INSIDE_CARS)
+                {
+                    ActivePerspective = Perspective.INSIDE_CARS;
+                    OnFlashNotification?.Invoke("CAMERA: METRO CARRIAGE 3", Colors.DarkSlateBlue);
+                }
             }
         }
     }
@@ -300,6 +349,7 @@ public partial class SimulationManager : Node
         passenger.IsTrainPassenger = true;
         passenger.IsDragging = false;
         passenger.IsWalkingToLane = true;
+        passenger.CurrentPerspective = Perspective.PLATFORM;
 
         Vector2 startPosition = GetLaneEntryPosition();
         float laneX = GetLaneSlotPosition(passenger.TargetLaneIndex, 0).X;
@@ -343,7 +393,13 @@ public partial class SimulationManager : Node
 
     private void AddPassengerToWorld(GodotCommuterAgent passenger)
     {
-        Node parent = _platformScreen ?? GetTree().CurrentScene;
+        ResolveSceneReferences();
+        Node parent = null;
+        if (passenger.CurrentPerspective == Perspective.UNDER_STATION) parent = _concourseScreen;
+        else if (passenger.CurrentPerspective == Perspective.PLATFORM) parent = _platformScreen;
+        else if (passenger.CurrentPerspective == Perspective.INSIDE_CARS) parent = _trainScreen;
+
+        if (parent == null) parent = GetTree().CurrentScene;
         parent?.AddChild(passenger);
     }
 
@@ -684,6 +740,8 @@ public partial class SimulationManager : Node
         }
 
         _platformScreen ??= currentScene.FindChild("Platform_Screen", true, false) as Node2D;
+        _concourseScreen ??= currentScene.FindChild("Concourse_Screen", true, false) as Node2D;
+        _trainScreen ??= currentScene.FindChild("Train_Screen", true, false) as Node2D;
         _trainVehicle ??= currentScene.FindChild("TrainVehicle", true, false) as Sprite2D;
         CaptureTrainParkPosition();
     }
@@ -734,5 +792,26 @@ public partial class SimulationManager : Node
     private void UpdateViewportBounds()
     {
         _viewportSize = GetViewport().GetVisibleRect().Size;
+    }
+
+    public void UpdateScreenVisibilities()
+    {
+        ResolveSceneReferences();
+
+        Node2D concScreen = ConcourseScreen ?? _concourseScreen;
+        Node2D platScreen = PlatformScreen ?? _platformScreen;
+        Node2D trnScreen = TrainScreen ?? _trainScreen;
+
+        if (concScreen != null) concScreen.Visible = (_activePerspective == Perspective.UNDER_STATION);
+        if (platScreen != null) platScreen.Visible = (_activePerspective == Perspective.PLATFORM);
+        if (trnScreen != null) trnScreen.Visible = (_activePerspective == Perspective.INSIDE_CARS);
+
+        foreach (var passenger in Passengers)
+        {
+            if (IsInstanceValid(passenger))
+            {
+                passenger.Visible = (passenger.CurrentPerspective == _activePerspective);
+            }
+        }
     }
 }

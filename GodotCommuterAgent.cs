@@ -57,8 +57,59 @@ public partial class GodotCommuterAgent : Node2D
     [Export]
     public Sprite2D AgentSprite { get; set; }
 
+    [Export]
+    public Vector2 AgentCustomScale { get; set; } = new Vector2(0.35f, 0.35f);
+
+    [Export]
+    public string[] SideSkins { get; set; } = new string[] 
+    { 
+        "res://walkingside3.png", 
+        "res://Walkingside2.png", 
+        "res://commuter_2_right.png" 
+    };
+
+    [Export]
+    public string[] UpSkins { get; set; } = new string[] 
+    { 
+        "res://walk_up.png", 
+        "res://walk_up.png", 
+        "res://commuter_2_forward.png" 
+    };
+
+    private Texture2D _assignedSideTexture;
+    private Texture2D _assignedUpTexture;
+    private bool _skinDefaultFacingLeft = true;
+
     public override void _Ready()
     {
+        Scale = AgentCustomScale;
+        
+        int skinCount = Math.Min(SideSkins?.Length ?? 0, UpSkins?.Length ?? 0);
+        if (skinCount > 0)
+        {
+            var random = new Random();
+            int skinIdx = random.Next(skinCount);
+            
+            _assignedSideTexture = GD.Load<Texture2D>(SideSkins[skinIdx]);
+            _assignedUpTexture = GD.Load<Texture2D>(UpSkins[skinIdx]);
+
+            string sidePath = SideSkins[skinIdx].ToLower();
+            if (sidePath.Contains("commuter_2") || sidePath.Contains("right"))
+            {
+                _skinDefaultFacingLeft = false;
+            }
+            else
+            {
+                _skinDefaultFacingLeft = true;
+            }
+        }
+
+        var sprite = GetNodeOrNull<Sprite2D>("Sprite2D");
+        if (sprite != null && _assignedSideTexture != null)
+        {
+            sprite.Texture = _assignedSideTexture;
+        }
+
         UpdateVisuals();
     }
 
@@ -101,26 +152,89 @@ public partial class GodotCommuterAgent : Node2D
 
     public override void _Process(double delta)
     {
+        var sim = SimulationManager.Instance;
+        if (sim != null && CurrentPerspective != sim.ActivePerspective)
+        {
+            Visible = false;
+            return;
+        }
+        Visible = true;
+
         UpdateVisuals();
+
+        bool isMoving = false;
+        Vector2 velocity = Vector2.Zero;
 
         if (IsWalkingToLane && !IsDragging && !IsFrozen)
         {
+            Vector2 oldPos = Position;
             UpdateLaneWalk((float)delta);
-            return;
+            isMoving = IsWalkingToLane;
+            velocity = Position - oldPos;
+        }
+        else if (LegacyMovementEnabled && !IsFrozen && !IsDragging)
+        {
+            Vector2 dir = TargetPosition - Position;
+            float dist = dir.Length();
+            
+            if (dist > 8.0f)
+            {
+                Vector2 norm = dir.Normalized();
+                Vector2 oldPos = Position;
+                Position += norm * MovementSpeed * TargetMultiplier * (float)delta;
+                isMoving = true;
+                velocity = Position - oldPos;
+            }
         }
 
-        if (!LegacyMovementEnabled || IsFrozen || IsDragging)
+        var anim = GetNodeOrNull<AnimationPlayer>("AnimationPlayer");
+        if (anim != null)
         {
-            return;
-        }
+            var sprite = GetNodeOrNull<Sprite2D>("Sprite2D");
+            if (isMoving)
+            {
+                bool isUpwardDominant = velocity.Y < 0.0f && MathF.Abs(velocity.Y) > MathF.Abs(velocity.X);
+                if (isUpwardDominant)
+                {
+                    anim.Play("walk_up");
+                    if (sprite != null && _assignedUpTexture != null && sprite.Texture != _assignedUpTexture)
+                    {
+                        sprite.Texture = _assignedUpTexture;
+                    }
+                }
+                else
+                {
+                    anim.Play("walk_side");
+                    if (sprite != null && _assignedSideTexture != null && sprite.Texture != _assignedSideTexture)
+                    {
+                        sprite.Texture = _assignedSideTexture;
+                    }
+                }
 
-        Vector2 dir = TargetPosition - Position;
-        float dist = dir.Length();
-        
-        if (dist > 8.0f)
-        {
-            Vector2 norm = dir.Normalized();
-            Position += norm * MovementSpeed * TargetMultiplier * (float)delta;
+                if (sprite != null)
+                {
+                    if (velocity.X < -0.01f)
+                    {
+                        sprite.FlipH = _skinDefaultFacingLeft ? false : true;
+                    }
+                    else if (velocity.X > 0.01f)
+                    {
+                        sprite.FlipH = _skinDefaultFacingLeft ? true : false;
+                    }
+                }
+            }
+            else
+            {
+                anim.Stop();
+                if (sprite != null)
+                {
+                    sprite.Frame = 0;
+                    if (_assignedSideTexture != null && sprite.Texture != _assignedSideTexture)
+                    {
+                        sprite.Texture = _assignedSideTexture;
+                    }
+                }
+            }
         }
     }
 
