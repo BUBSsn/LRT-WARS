@@ -67,19 +67,18 @@ public partial class SimulationManager : Node
     public float BalanceMeter { get; private set; } = 100.0f;
     public int CurrentRoundPassengerCount { get; private set; } = 15;
 
-    // Rage System: average performance score of COMPLETED rounds only.
-    // Returns 100 (= perfect, no anger) until at least one round is done.
+    private float _currentRageScore = 100.0f;
+    private bool _hasCompletedAnyRound = false;
+
     public float AverageRage
     {
         get
         {
-            if (_completedRoundScores.Count == 0)
+            if (!_hasCompletedAnyRound)
             {
-                return 100.0f; // No rounds finished yet — bar starts green (zero anger)
+                return 100.0f; 
             }
-            float sum = 0.0f;
-            foreach (float s in _completedRoundScores) sum += s;
-            return sum / _completedRoundScores.Count;
+            return _currentRageScore;
         }
     }
 
@@ -213,7 +212,34 @@ public partial class SimulationManager : Node
                             _laneCounts[l] = Math.Max(0, _laneCounts[l] - 1);
                             if (IsInstanceValid(frontPassenger))
                             {
-                                frontPassenger.QueueFree();
+                                if (_trainScreen != null)
+                                {
+                                    frontPassenger.CurrentPerspective = Perspective.INSIDE_CARS;
+                                    frontPassenger.IsWalkingToLane = false;
+                                    frontPassenger.LegacyMovementEnabled = false;
+
+                                    // Position inside train cabin (horizontal offset based on lane, vertical center inside train car)
+                                    float x = GetLaneSlotPosition(l, 0).X + (float)(_random.NextDouble() * 80.0 - 40.0);
+                                    float y = 300.0f + (float)(_random.NextDouble() * 100.0 - 50.0);
+                                    frontPassenger.Position = new Vector2(x, y);
+
+                                    var anim = frontPassenger.GetNodeOrNull<AnimationPlayer>("AnimationPlayer");
+                                    if (anim != null)
+                                    {
+                                        anim.Stop();
+                                    }
+                                    var sprite = frontPassenger.GetNodeOrNull<Sprite2D>("Sprite2D");
+                                    if (sprite != null)
+                                    {
+                                        sprite.Frame = 0;
+                                    }
+
+                                    frontPassenger.CallDeferred("reparent", _trainScreen, false);
+                                }
+                                else
+                                {
+                                    frontPassenger.QueueFree();
+                                }
                             }
                         }
 
@@ -293,6 +319,8 @@ public partial class SimulationManager : Node
         BalanceMeter = 100.0f;
         CurrentRoundPassengerCount = 15;
         _completedRoundScores.Clear();
+        _currentRageScore = 100.0f;
+        _hasCompletedAnyRound = false;
         _precalculatedTargetLanes.Clear();
         _roundEnding = false;
         _transitionTimer = 0.0f;
@@ -385,6 +413,16 @@ public partial class SimulationManager : Node
         CurrentRoundScore = score;
         CurrentRoundBalanced = isBalanced;
         BalanceMeter = score;
+
+        if (!_hasCompletedAnyRound)
+        {
+            _currentRageScore = score;
+            _hasCompletedAnyRound = true;
+        }
+        else
+        {
+            _currentRageScore = (0.35f * score) + (0.65f * _currentRageScore);
+        }
     }
 
     /// <summary>
@@ -663,6 +701,8 @@ public partial class SimulationManager : Node
 
     private void ClearPassengers()
     {
+        ResolveSceneReferences();
+
         foreach (var passenger in Passengers)
         {
             if (IsInstanceValid(passenger))
@@ -670,8 +710,19 @@ public partial class SimulationManager : Node
                 passenger.QueueFree();
             }
         }
-
         Passengers.Clear();
+
+        if (_trainScreen != null)
+        {
+            foreach (var child in _trainScreen.GetChildren())
+            {
+                if (child is GodotCommuterAgent agent)
+                {
+                    agent.QueueFree();
+                }
+            }
+        }
+
         Array.Clear(_laneCounts, 0, _laneCounts.Length);
     }
 
