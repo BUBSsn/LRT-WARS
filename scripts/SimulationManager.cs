@@ -42,10 +42,11 @@ public partial class SimulationManager : Node
     private const float BaseRoundDuration = 20.0f;
     private const float RoundDurationDecrement = 2.0f;
     private const float MinimumRoundDuration = 10.0f;
-    private const float TrainArrivalSeconds = 1.35f;
-    private const float TrainDepartureSeconds = 0.85f;
+    private const float TrainArrivalSeconds = 2.0f;
+    private const float TrainDepartureSeconds = 2.2f;
     private const float LaneSpacing = 34.0f;
-    private const float LaneTopOffset = 184.0f;
+    [Export]
+    public float LaneTopOffset { get; set; } = 240.0f;
     private const float LaneLeftMargin = 120.0f;
     private const float LaneRightMargin = 120.0f;
     private const float SpawnOffset = 48.0f;
@@ -108,6 +109,7 @@ public partial class SimulationManager : Node
     private int _nextSpawnOrder = 0;
     private int _pendingPassengerSpawns = 0;
     private float _nextPassengerSpawnDelay = 0.0f;
+    private float _spawnInterval = 0.5f;
 
     public override void _Ready()
     {
@@ -131,6 +133,7 @@ public partial class SimulationManager : Node
             if (_trainVehicle != null)
             {
                 _trainVehicle.Position = _trainOffscreenLeft;
+                _trainVehicle.Visible = false;
             }
 
             ProcessPassengerSpawns(d);
@@ -152,8 +155,10 @@ public partial class SimulationManager : Node
 
             if (_trainVehicle != null)
             {
+                _trainVehicle.Visible = true;
                 float progress = Math.Clamp(_arrivalTimer / TrainArrivalSeconds, 0.0f, 1.0f);
-                _trainVehicle.Position = _trainOffscreenLeft.Lerp(_trainParkPosition, progress);
+                float easedProgress = progress * (2.0f - progress); // Deceleration (Ease-Out)
+                _trainVehicle.Position = _trainOffscreenLeft.Lerp(_trainParkPosition, easedProgress);
             }
 
             ProcessPassengerSpawns(d);
@@ -182,6 +187,7 @@ public partial class SimulationManager : Node
 
             if (_trainVehicle != null)
             {
+                _trainVehicle.Visible = true;
                 _trainVehicle.Position = _trainParkPosition;
             }
 
@@ -228,8 +234,10 @@ public partial class SimulationManager : Node
 
             if (_trainVehicle != null)
             {
+                _trainVehicle.Visible = true;
                 float progress = Math.Clamp(_transitionTimer / TrainDepartureSeconds, 0.0f, 1.0f);
-                _trainVehicle.Position = _trainParkPosition.Lerp(_trainOffscreenRight, progress);
+                float easedProgress = progress * progress; // Acceleration (Ease-In)
+                _trainVehicle.Position = _trainParkPosition.Lerp(_trainOffscreenRight, easedProgress);
             }
 
             if (_transitionTimer >= TrainDepartureSeconds)
@@ -444,10 +452,14 @@ public partial class SimulationManager : Node
 
     private void PreparePassengerSpawns()
     {
-        // Choose a random passenger count in [15, 25]
+        // Choose a random passenger count in [20, 35]
         CurrentRoundPassengerCount = _random.Next(20, 36);
         _pendingPassengerSpawns = CurrentRoundPassengerCount;
-        _nextPassengerSpawnDelay = GetRandomPassengerSpawnDelay();
+
+        // Calculate even spawn interval to finish exactly at 5.0s remaining
+        float spawnWindow = Math.Max(2.0f, CurrentRoundDuration - 5.0f);
+        _spawnInterval = spawnWindow / _pendingPassengerSpawns;
+        _nextPassengerSpawnDelay = 0.0f; // Start spawning the first one immediately!
 
         // Pre-calculate evenly balanced target lanes
         _precalculatedTargetLanes.Clear();
@@ -476,26 +488,33 @@ public partial class SimulationManager : Node
 
     private void ProcessPassengerSpawns(float delta)
     {
-        // Stop spawning with 3 seconds left so all passengers reach their lane
-        // before the lock-in / boarding phase begins.
         if ((CurrentState != TrainRoundState.WaitingForTrain && CurrentState != TrainRoundState.Arriving)
-            || _pendingPassengerSpawns <= 0
-            || RoundTimeRemaining <= 3.0f)
+            || _pendingPassengerSpawns <= 0)
         {
+            return;
+        }
+
+        // Force spawn remaining passengers if time remaining <= 5.0s, but space them by at least 0.25s
+        if (RoundTimeRemaining <= 5.0f)
+        {
+            float urgentInterval = 0.25f;
+            _nextPassengerSpawnDelay -= delta;
+            if (_nextPassengerSpawnDelay <= 0.0f)
+            {
+                SpawnPassenger();
+                _pendingPassengerSpawns--;
+                _nextPassengerSpawnDelay = urgentInterval;
+            }
             return;
         }
 
         _nextPassengerSpawnDelay -= delta;
 
-        while (_pendingPassengerSpawns > 0 && _nextPassengerSpawnDelay <= 0.0f)
+        if (_nextPassengerSpawnDelay <= 0.0f)
         {
             SpawnPassenger();
             _pendingPassengerSpawns--;
-
-            if (_pendingPassengerSpawns > 0)
-            {
-                _nextPassengerSpawnDelay += GetRandomPassengerSpawnDelay();
-            }
+            _nextPassengerSpawnDelay = _spawnInterval;
         }
     }
 
@@ -590,12 +609,6 @@ public partial class SimulationManager : Node
                     _laneCounts[passenger.LaneIndex]++;
                     
                     Vector2 slotPosition = GetLaneSlotPosition(passenger.LaneIndex, passenger.LaneSlotIndex);
-                    
-                    float distY = MathF.Abs(passenger.Position.Y - slotPosition.Y);
-                    // Budget: must reach slot before the 3-second lock-in mark.
-                    float timeRemaining = Math.Max(0.1f, RoundTimeRemaining - 3.0f - 0.2f);
-                    passenger.MovementSpeed = Math.Max(240.0f, distY / timeRemaining);
-
                     passenger.SetLaneWalkTarget(slotPosition);
                 }
             }
@@ -999,9 +1012,10 @@ public partial class SimulationManager : Node
         }
 
         _trainParkPosition = _trainVehicle.Position;
-        _trainOffscreenLeft = new Vector2(_trainParkPosition.X - Math.Max(700.0f, _viewportSize.X), _trainParkPosition.Y);
-        _trainOffscreenRight = new Vector2(_trainParkPosition.X + Math.Max(700.0f, _viewportSize.X), _trainParkPosition.Y);
+        _trainOffscreenLeft = new Vector2(_trainParkPosition.X - Math.Max(2500.0f, _viewportSize.X * 2.0f), _trainParkPosition.Y);
+        _trainOffscreenRight = new Vector2(_trainParkPosition.X + Math.Max(2500.0f, _viewportSize.X * 2.0f), _trainParkPosition.Y);
         _trainVehicle.Position = _trainOffscreenLeft;
+        _trainVehicle.Visible = (CurrentState != TrainRoundState.WaitingForTrain);
         _trainParkPositionCaptured = true;
     }
 
@@ -1013,6 +1027,7 @@ public partial class SimulationManager : Node
         }
 
         _trainVehicle.Position = _trainOffscreenLeft;
+        _trainVehicle.Visible = false;
     }
 
     private void UpdateTrainPosition(bool leaving)
@@ -1025,12 +1040,16 @@ public partial class SimulationManager : Node
         if (!leaving)
         {
             float progress = Math.Clamp(RoundElapsed / TrainArrivalSeconds, 0.0f, 1.0f);
-            _trainVehicle.Position = _trainOffscreenLeft.Lerp(_trainParkPosition, progress);
+            float easedProgress = progress * (2.0f - progress); // Deceleration
+            _trainVehicle.Position = _trainOffscreenLeft.Lerp(_trainParkPosition, easedProgress);
+            _trainVehicle.Visible = true;
         }
         else
         {
             float progress = Math.Clamp(_transitionTimer / TrainDepartureSeconds, 0.0f, 1.0f);
-            _trainVehicle.Position = _trainParkPosition.Lerp(_trainOffscreenRight, progress);
+            float easedProgress = progress * progress; // Acceleration
+            _trainVehicle.Position = _trainParkPosition.Lerp(_trainOffscreenRight, easedProgress);
+            _trainVehicle.Visible = true;
         }
     }
 
