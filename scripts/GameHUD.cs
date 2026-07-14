@@ -14,9 +14,25 @@ public partial class GameHUD : CanvasLayer
 	[Export]
 	public Label AnnouncementLabel { get; set; }
 
-	private string _announcementText = "BALANCE THE 5 LINES BEFORE THE TRAIN DEPARTS";
-	private Color _announcementColor = Colors.DarkSlateGray;
-	private int _announcementTicks = 0;
+	private StyleBoxFlat _rageFillStyle;
+
+	public override void _Ready()
+	{
+		// Hide unused UI elements – only the rage bar and timer are shown.
+		if (ScoreLabel != null) ScoreLabel.Visible = false;
+		if (AnnouncementLabel != null) AnnouncementLabel.Visible = false;
+
+		// Set up the fill StyleBox so we can colour it dynamically.
+		if (RiotMeterBar != null)
+		{
+			_rageFillStyle = new StyleBoxFlat();
+			_rageFillStyle.BgColor = Colors.LimeGreen;
+			RiotMeterBar.AddThemeStyleboxOverride("fill", _rageFillStyle);
+
+			// Hide the percentage text that Godot shows by default.
+			RiotMeterBar.ShowPercentage = false;
+		}
+	}
 
 	public override void _Process(double delta)
 	{
@@ -26,58 +42,40 @@ public partial class GameHUD : CanvasLayer
 			return;
 		}
 
-		if (RiotMeterBar != null)
+		// --- Rage Bar (green → red) ---
+		// AverageRage is the performance score (100 = perfect balance).
+		// Commuter anger is the inverse: low score → high anger → red.
+		if (RiotMeterBar != null && _rageFillStyle != null)
 		{
-			RiotMeterBar.Value = sim.BalanceMeter;
+			float rageLevel = 100.0f - sim.AverageRage; // 0 = calm/green, 100 = furious/red
+			RiotMeterBar.Value = rageLevel;
+
+			// Lerp hue: 0.33 (green) → 0.0 (red)
+			float t = rageLevel / 100.0f;
+			float hue = Mathf.Lerp(0.33f, 0.0f, t);
+			_rageFillStyle.BgColor = Color.FromHsv(hue, 0.85f, 0.95f);
 		}
 
-		if (ScoreLabel != null)
-		{
-			ScoreLabel.Text = $"Round {sim.CurrentRound} | Score {sim.CurrentRoundScore:0} | Total {sim.CumulativeScore:0}";
-		}
-
+		// --- Timer: only show when the train hasn't arrived yet ---
 		if (TimerLabel != null)
 		{
-			string stateText = sim.CurrentState switch
+			switch (sim.CurrentState)
 			{
-				TrainRoundState.Boarding => "BOARDING",
-				TrainRoundState.Scoring => "SCORING",
-				TrainRoundState.Transition => "TRANSITION",
-				_ => "WAITING"
-			};
-
-			TimerLabel.Text = $"{stateText} {sim.RoundTimeRemaining:0.0}s";
-		}
-
-		if (AnnouncementLabel != null)
-		{
-			if (_announcementTicks > 0)
-			{
-				_announcementTicks--;
+				case TrainRoundState.WaitingForTrain:
+					TimerLabel.Visible = true;
+					TimerLabel.Text = $"TRAIN IN {sim.RoundTimeRemaining:0.0}s";
+					break;
+				case TrainRoundState.Arriving:
+					TimerLabel.Visible = true;
+					TimerLabel.Text = $"ARRIVING {sim.RoundTimeRemaining:0.0}s";
+					break;
+				default:
+					TimerLabel.Visible = false;
+					break;
 			}
-			else
-			{
-				_announcementText = sim.RoundResultText.Length > 0
-					? sim.RoundResultText
-					: "BALANCE THE 5 LINES BEFORE THE TRAIN DEPARTS";
-				_announcementColor = Colors.DarkSlateGray;
-			}
-
-			AnnouncementLabel.Text = _announcementText;
-			AnnouncementLabel.Modulate = _announcementColor;
 		}
 	}
 
-	public void ShowAnnouncement(string text, Color baseColor)
-	{
-		_announcementText = text;
-		_announcementColor = baseColor;
-		_announcementTicks = 120;
-
-		if (AnnouncementLabel != null)
-		{
-			AnnouncementLabel.Text = _announcementText;
-			AnnouncementLabel.Modulate = _announcementColor;
-		}
-	}
+	// Kept for compatibility – announcements are no longer displayed.
+	public void ShowAnnouncement(string text, Color baseColor) { }
 }

@@ -12,7 +12,8 @@ public enum Perspective
 public enum TrainRoundState
 {
     WaitingForTrain,
-    Boarding,
+    Arriving,
+    Stopped,
     Scoring,
     Transition
 }
@@ -38,7 +39,7 @@ public partial class SimulationManager : Node
 
     public const int LaneCount = 5;
 
-    private const float BaseRoundDuration = 25.0f;
+    private const float BaseRoundDuration = 20.0f;
     private const float RoundDurationDecrement = 2.0f;
     private const float MinimumRoundDuration = 10.0f;
     private const float TrainArrivalSeconds = 1.35f;
@@ -63,16 +64,38 @@ public partial class SimulationManager : Node
     public bool CurrentRoundBalanced { get; private set; } = false;
     public string RoundResultText { get; private set; } = "";
     public float BalanceMeter { get; private set; } = 100.0f;
+    public int CurrentRoundPassengerCount { get; private set; } = 15;
+
+    // Rage System: average performance score of COMPLETED rounds only.
+    // Returns 100 (= perfect, no anger) until at least one round is done.
+    public float AverageRage
+    {
+        get
+        {
+            if (_completedRoundScores.Count == 0)
+            {
+                return 100.0f; // No rounds finished yet — bar starts green (zero anger)
+            }
+            float sum = 0.0f;
+            foreach (float s in _completedRoundScores) sum += s;
+            return sum / _completedRoundScores.Count;
+        }
+    }
 
     public Action<string, Color> OnFlashNotification;
 
     public List<GodotCommuterAgent> Passengers { get; } = new List<GodotCommuterAgent>();
 
     private readonly int[] _laneCounts = new int[LaneCount];
+    private readonly int[] _initialLaneCounts = new int[LaneCount];
+    private readonly float[] _laneBoardingTimers = new float[LaneCount];
     private readonly Random _random = new Random();
+    private readonly List<float> _completedRoundScores = new List<float>();
+    private readonly List<int> _precalculatedTargetLanes = new List<int>();
 
     private bool _roundEnding = false;
     private float _transitionTimer = 0.0f;
+    private float _arrivalTimer = 0.0f;
     private Node2D _platformScreen;
     private Node2D _concourseScreen;
     private Node2D _trainScreen;
@@ -102,17 +125,96 @@ public partial class SimulationManager : Node
 
         if (CurrentState == TrainRoundState.WaitingForTrain)
         {
-            return;
-        }
-
-        if (CurrentState == TrainRoundState.Boarding)
-        {
             RoundElapsed += d;
             RoundTimeRemaining = Math.Max(0.0f, RoundTimeRemaining - d);
-            UpdateTrainPosition(false);
+            
+            if (_trainVehicle != null)
+            {
+                _trainVehicle.Position = _trainOffscreenLeft;
+            }
+
             ProcessPassengerSpawns(d);
             UpdateWalkingPassengers();
             LayoutPassengers();
+
+            if (RoundTimeRemaining <= 0.0f)
+            {
+                CurrentState = TrainRoundState.Arriving;
+                _arrivalTimer = 0.0f;
+                OnFlashNotification?.Invoke("⚠️ TRAIN ARRIVING - FINALIZE LINES", Colors.YellowGreen);
+            }
+        }
+        else if (CurrentState == TrainRoundState.Arriving)
+        {
+            RoundElapsed += d;
+            _arrivalTimer += d;
+            RoundTimeRemaining = Math.Max(0.0f, TrainArrivalSeconds - _arrivalTimer);
+
+            if (_trainVehicle != null)
+            {
+                float progress = Math.Clamp(_arrivalTimer / TrainArrivalSeconds, 0.0f, 1.0f);
+                _trainVehicle.Position = _trainOffscreenLeft.Lerp(_trainParkPosition, progress);
+            }
+
+            ProcessPassengerSpawns(d);
+            UpdateWalkingPassengers();
+            LayoutPassengers();
+
+            if (_arrivalTimer >= TrainArrivalSeconds)
+            {
+                CurrentState = TrainRoundState.Stopped;
+                RoundTimeRemaining = 3.0f;
+                OnFlashNotification?.Invoke("🛑 TRAIN STOPPED - ARRANGING CLOSED", Colors.OrangeRed);
+
+                for (int l = 0; l < LaneCount; l++)
+                {
+                    var lanePassengers = GetLanePassengers(l);
+                    _initialLaneCounts[l] = lanePassengers.Count;
+                    _laneBoardingTimers[l] = 0.0f;
+                    StartNextBoardingStep(l);
+                }
+            }
+        }
+        else if (CurrentState == TrainRoundState.Stopped)
+        {
+            RoundElapsed += d;
+            RoundTimeRemaining = Math.Max(0.0f, RoundTimeRemaining - d);
+
+            if (_trainVehicle != null)
+            {
+                _trainVehicle.Position = _trainParkPosition;
+            }
+
+            ProcessPassengerSpawns(d);
+            UpdateWalkingPassengers();
+            // LayoutPassengers(); // Disabled to allow boarding animation positions
+
+            for (int l = 0; l < LaneCount; l++)
+            {
+                if (_initialLaneCounts[l] > 0)
+                {
+                    _laneBoardingTimers[l] += d;
+                    float boardingInterval = 3.0f / _initialLaneCounts[l];
+                    while (_laneBoardingTimers[l] >= boardingInterval)
+                    {
+                        _laneBoardingTimers[l] -= boardingInterval;
+                        
+                        var lanePassengers = GetLanePassengers(l);
+                        if (lanePassengers.Count > 0)
+                        {
+                            var frontPassenger = lanePassengers[0];
+                            Passengers.Remove(frontPassenger);
+                            _laneCounts[l] = Math.Max(0, _laneCounts[l] - 1);
+                            if (IsInstanceValid(frontPassenger))
+                            {
+                                frontPassenger.QueueFree();
+                            }
+                        }
+
+                        StartNextBoardingStep(l);
+                    }
+                }
+            }
 
             if (RoundTimeRemaining <= 0.0f)
             {
@@ -122,7 +224,13 @@ public partial class SimulationManager : Node
         else if (CurrentState == TrainRoundState.Scoring)
         {
             _transitionTimer += d;
-            UpdateTrainPosition(true);
+            RoundTimeRemaining = Math.Max(0.0f, TrainDepartureSeconds - _transitionTimer);
+
+            if (_trainVehicle != null)
+            {
+                float progress = Math.Clamp(_transitionTimer / TrainDepartureSeconds, 0.0f, 1.0f);
+                _trainVehicle.Position = _trainParkPosition.Lerp(_trainOffscreenRight, progress);
+            }
 
             if (_transitionTimer >= TrainDepartureSeconds)
             {
@@ -175,8 +283,12 @@ public partial class SimulationManager : Node
         CurrentRoundBalanced = false;
         RoundResultText = "";
         BalanceMeter = 100.0f;
+        CurrentRoundPassengerCount = 15;
+        _completedRoundScores.Clear();
+        _precalculatedTargetLanes.Clear();
         _roundEnding = false;
         _transitionTimer = 0.0f;
+        _arrivalTimer = 0.0f;
         _nextSpawnOrder = 0;
         _pendingPassengerSpawns = 0;
         _nextPassengerSpawnDelay = 0.0f;
@@ -206,12 +318,13 @@ public partial class SimulationManager : Node
         BalanceMeter = 100.0f;
         _roundEnding = false;
         _transitionTimer = 0.0f;
+        _arrivalTimer = 0.0f;
 
         PreparePassengerSpawns();
         LayoutPassengers();
         PositionTrainForArrival();
 
-        CurrentState = TrainRoundState.Boarding;
+        CurrentState = TrainRoundState.WaitingForTrain;
         OnFlashNotification?.Invoke($"🚉 ROUND {CurrentRound} STARTED - BALANCE THE 5 LINES", Colors.SteelBlue);
     }
 
@@ -232,59 +345,142 @@ public partial class SimulationManager : Node
         CurrentState = TrainRoundState.Scoring;
         _transitionTimer = 0.0f;
 
+        // Stop all remaining passengers from walking so they don't
+        // continue their upward boarding animation while the train departs.
+        for (int i = 0; i < Passengers.Count; i++)
+        {
+            var p = Passengers[i];
+            if (IsInstanceValid(p))
+            {
+                p.IsWalkingToLane = false;
+                p.LegacyMovementEnabled = false;
+            }
+        }
+
         EvaluateRound();
         RoundResultText = CurrentRoundBalanced
-            ? $"ROUND {CurrentRound} BALANCED | SCORE {CurrentRoundScore:0}"
-            : $"ROUND {CurrentRound} UNBALANCED | SCORE {CurrentRoundScore:0}";
+            ? $"ROUND {CurrentRound} BALANCED | SCORE {CurrentRoundScore:0} | RAGE AVG {AverageRage:0}"
+            : $"ROUND {CurrentRound} UNBALANCED | SCORE {CurrentRoundScore:0} | RAGE AVG {AverageRage:0}";
 
         CumulativeScore += CurrentRoundScore;
+        _completedRoundScores.Add(CurrentRoundScore);
         OnFlashNotification?.Invoke(
             CurrentRoundBalanced
-                ? $"✅ TRAIN BALANCED - SCORE {CurrentRoundScore:0}"
-                : $"⚠️ TRAIN UNBALANCED - SCORE {CurrentRoundScore:0}",
+                ? $"✅ TRAIN BALANCED - SCORE {CurrentRoundScore:0} | RAGE AVG {AverageRage:0}"
+                : $"⚠️ TRAIN UNBALANCED - SCORE {CurrentRoundScore:0} | RAGE AVG {AverageRage:0}",
             CurrentRoundBalanced ? Colors.DarkGreen : Colors.DarkOrange);
     }
 
     private void EvaluateRound()
     {
-        int passengerCount = Passengers.Count;
-        int maxCount = 0;
-        int minCount = int.MaxValue;
-        int totalCount = 0;
+        float score = CalculatePotentialScore(out bool isBalanced);
+        CurrentRoundScore = score;
+        CurrentRoundBalanced = isBalanced;
+        BalanceMeter = score;
+    }
 
-        for (int i = 0; i < LaneCount; i++)
+    /// <summary>
+    /// Scores the arrangement that was locked in when the train stopped.
+    /// Uses _initialLaneCounts (the snapshot taken at train-stop time) so that
+    /// the score is unaffected by passengers boarding during the 3-second window.
+    /// N is derived from the snapshot sum so the ideal perfectly matches reality.
+    /// </summary>
+    private float CalculatePotentialScore(out bool isBalanced)
+    {
+        // Derive N from the snapshot so partial rounds still score correctly.
+        int n = 0;
+        for (int i = 0; i < LaneCount; i++) n += _initialLaneCounts[i];
+
+        if (n == 0)
         {
-            int count = _laneCounts[i];
-            totalCount += count;
-            maxCount = Math.Max(maxCount, count);
-            minCount = Math.Min(minCount, count);
+            isBalanced = true;
+            return 100.0f;
         }
 
-        float average = passengerCount > 0 ? (float)totalCount / LaneCount : 0.0f;
+        int base_ = n / LaneCount;
+        int remainder = n % LaneCount;
+
+        // Build the ideal sorted distribution (descending).
+        int[] ideal = new int[LaneCount];
+        for (int i = 0; i < LaneCount; i++)
+        {
+            ideal[i] = (i < remainder) ? (base_ + 1) : base_;
+        }
+
+        // Copy the locked-in counts and sort descending.
+        int[] actual = new int[LaneCount];
+        for (int i = 0; i < LaneCount; i++)
+        {
+            actual[i] = _initialLaneCounts[i];
+        }
+        Array.Sort(actual);
+        Array.Reverse(actual);
+
+        // Sum of absolute deviations between sorted actual and sorted ideal.
         float totalDeviation = 0.0f;
-
         for (int i = 0; i < LaneCount; i++)
         {
-            totalDeviation += MathF.Abs(_laneCounts[i] - average);
+            totalDeviation += MathF.Abs(actual[i] - ideal[i]);
         }
 
-        float worstCaseDeviation = Math.Max(1.0f, passengerCount * 1.6f);
-        float normalizedDeviation = Math.Clamp(totalDeviation / worstCaseDeviation, 0.0f, 1.0f);
+        // Worst case: all n passengers on one lane.
+        int[] worst = new int[LaneCount];
+        worst[0] = n;
+        float worstDeviation = 0.0f;
+        for (int i = 0; i < LaneCount; i++)
+        {
+            worstDeviation += MathF.Abs(worst[i] - ideal[i]);
+        }
+        worstDeviation = Math.Max(1.0f, worstDeviation);
 
-        CurrentRoundScore = MathF.Round((1.0f - normalizedDeviation) * 100.0f);
-        CurrentRoundBalanced = (maxCount - minCount) <= 1;
-        BalanceMeter = Math.Clamp(100.0f - (normalizedDeviation * 100.0f), 0.0f, 100.0f);
+        float normalizedDeviation = Math.Clamp(totalDeviation / worstDeviation, 0.0f, 1.0f);
+        float score = MathF.Round((1.0f - normalizedDeviation) * 100.0f);
+
+        // Balanced = every lane is within 1 of every other lane.
+        isBalanced = (actual[0] - actual[LaneCount - 1]) <= 1;
+
+        return score;
     }
 
     private void PreparePassengerSpawns()
     {
-        _pendingPassengerSpawns = LaneCount * 3;
+        // Choose a random passenger count in [15, 25]
+        CurrentRoundPassengerCount = _random.Next(20, 36);
+        _pendingPassengerSpawns = CurrentRoundPassengerCount;
         _nextPassengerSpawnDelay = GetRandomPassengerSpawnDelay();
+
+        // Pre-calculate evenly balanced target lanes
+        _precalculatedTargetLanes.Clear();
+        int baseCount = CurrentRoundPassengerCount / LaneCount;
+        int remainder = CurrentRoundPassengerCount % LaneCount;
+
+        // Fill lanes: first 'remainder' lanes get one extra passenger
+        for (int lane = 0; lane < LaneCount; lane++)
+        {
+            int count = (lane < remainder) ? (baseCount + 1) : baseCount;
+            for (int j = 0; j < count; j++)
+            {
+                _precalculatedTargetLanes.Add(lane);
+            }
+        }
+
+        // Shuffle so passengers don't all go to lane 0 first
+        for (int i = _precalculatedTargetLanes.Count - 1; i > 0; i--)
+        {
+            int j = _random.Next(i + 1);
+            int tmp = _precalculatedTargetLanes[i];
+            _precalculatedTargetLanes[i] = _precalculatedTargetLanes[j];
+            _precalculatedTargetLanes[j] = tmp;
+        }
     }
 
     private void ProcessPassengerSpawns(float delta)
     {
-        if (CurrentState != TrainRoundState.Boarding || _pendingPassengerSpawns <= 0)
+        // Stop spawning with 3 seconds left so all passengers reach their lane
+        // before the lock-in / boarding phase begins.
+        if ((CurrentState != TrainRoundState.WaitingForTrain && CurrentState != TrainRoundState.Arriving)
+            || _pendingPassengerSpawns <= 0
+            || RoundTimeRemaining <= 3.0f)
         {
             return;
         }
@@ -343,7 +539,13 @@ public partial class SimulationManager : Node
         var passenger = PassengerScene.Instantiate<GodotCommuterAgent>();
         passenger.SpawnOrder = _nextSpawnOrder++;
         passenger.LaneIndex = -1;
-        passenger.TargetLaneIndex = _random.Next(LaneCount);
+
+        // Use precalculated balanced lane if available, otherwise fall back to random
+        int spawnIndex = passenger.SpawnOrder;
+        passenger.TargetLaneIndex = (spawnIndex < _precalculatedTargetLanes.Count)
+            ? _precalculatedTargetLanes[spawnIndex]
+            : _random.Next(LaneCount);
+
         passenger.LaneSlotIndex = -1;
         passenger.LegacyMovementEnabled = false;
         passenger.IsTrainPassenger = true;
@@ -354,6 +556,14 @@ public partial class SimulationManager : Node
         Vector2 startPosition = GetLaneEntryPosition();
         float laneX = GetLaneSlotPosition(passenger.TargetLaneIndex, 0).X;
         Vector2 targetPosition = new Vector2(laneX, startPosition.Y);
+
+        float distX = MathF.Abs(startPosition.X - laneX);
+        float distY = MathF.Abs(startPosition.Y - LaneTopOffset);
+        float totalDistance = distX + distY;
+        // Budget: passenger must arrive before the 3-second lock-in mark.
+        float timeRemaining = Math.Max(0.1f, RoundTimeRemaining - 3.0f - 0.2f);
+        passenger.MovementSpeed = Math.Max(240.0f, totalDistance / timeRemaining);
+
         passenger.BeginLaneWalk(startPosition, targetPosition);
 
         AddPassengerToWorld(passenger);
@@ -380,6 +590,12 @@ public partial class SimulationManager : Node
                     _laneCounts[passenger.LaneIndex]++;
                     
                     Vector2 slotPosition = GetLaneSlotPosition(passenger.LaneIndex, passenger.LaneSlotIndex);
+                    
+                    float distY = MathF.Abs(passenger.Position.Y - slotPosition.Y);
+                    // Budget: must reach slot before the 3-second lock-in mark.
+                    float timeRemaining = Math.Max(0.1f, RoundTimeRemaining - 3.0f - 0.2f);
+                    passenger.MovementSpeed = Math.Max(240.0f, distY / timeRemaining);
+
                     passenger.SetLaneWalkTarget(slotPosition);
                 }
             }
@@ -388,7 +604,36 @@ public partial class SimulationManager : Node
 
     private float GetRandomPassengerSpawnDelay()
     {
-        return (float)(_random.NextDouble() * (PassengerSpawnDelayMax - PassengerSpawnDelayMin) + PassengerSpawnDelayMin);
+        float scale = CurrentRoundDuration / BaseRoundDuration;
+        float minDelay = PassengerSpawnDelayMin * scale;
+        float maxDelay = PassengerSpawnDelayMax * scale;
+        return (float)(_random.NextDouble() * (maxDelay - minDelay) + minDelay);
+    }
+
+    private void StartNextBoardingStep(int laneIndex)
+    {
+        var lanePassengers = GetLanePassengers(laneIndex);
+        if (lanePassengers.Count == 0)
+        {
+            return;
+        }
+
+        int initialCount = _initialLaneCounts[laneIndex];
+        if (initialCount <= 0)
+        {
+            return;
+        }
+
+        float boardingInterval = 3.0f / initialCount;
+
+        var frontPassenger = lanePassengers[0];
+        if (IsInstanceValid(frontPassenger))
+        {
+            Vector2 doorPos = GetLaneSlotPosition(laneIndex, -1);
+            float distance = frontPassenger.Position.DistanceTo(doorPos);
+            frontPassenger.MovementSpeed = distance / boardingInterval;
+            frontPassenger.BeginLaneWalk(frontPassenger.Position, doorPos);
+        }
     }
 
     private void AddPassengerToWorld(GodotCommuterAgent passenger)
@@ -591,7 +836,7 @@ public partial class SimulationManager : Node
     {
         passenger = null;
 
-        if (CurrentState != TrainRoundState.Boarding)
+        if (CurrentState != TrainRoundState.WaitingForTrain && CurrentState != TrainRoundState.Arriving)
         {
             return false;
         }

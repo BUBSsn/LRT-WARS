@@ -37,7 +37,15 @@ public partial class HomeworkWorkspace : Node2D
 
         if (_draggedPassenger != null)
         {
-            sim.UpdateDraggedPassenger(_draggedPassenger, GetGlobalMousePosition());
+            if (sim.CurrentState != TrainRoundState.WaitingForTrain && sim.CurrentState != TrainRoundState.Arriving)
+            {
+                sim.CommitDraggedPassenger(_draggedPassenger, GetGlobalMousePosition());
+                _draggedPassenger = null;
+            }
+            else
+            {
+                sim.UpdateDraggedPassenger(_draggedPassenger, GetGlobalMousePosition());
+            }
         }
     }
 

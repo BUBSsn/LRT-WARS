@@ -737,34 +737,39 @@ sources/0 = SubResource("TileSetAtlasSource_whfra")
 [node name="MainWorld" type="Node2D" unique_id=901706504]
 script = ExtResource("1_itk02")
 
-[node name="HUD" type="CanvasLayer" parent="." unique_id=2089216870 node_paths=PackedStringArray("RiotMeterBar", "TimerLabel")]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=2089216870 node_paths=PackedStringArray("RiotMeterBar", "ScoreLabel", "TimerLabel", "AnnouncementLabel")]
 script = ExtResource("2_uoqbt")
 RiotMeterBar = NodePath("RiotMeter")
+ScoreLabel = NodePath("BudgetLabel")
 TimerLabel = NodePath("TimerLabel")
+AnnouncementLabel = NodePath("AnnouncementLabel")
 
 [node name="RiotMeter" type="ProgressBar" parent="HUD" unique_id=1846182150]
-offset_left = 23.0
-offset_top = 6.0
-offset_right = 160.0
-offset_bottom = 33.0
+offset_left = 8.0
+offset_top = 4.0
+offset_right = 792.0
+offset_bottom = 22.0
 
 [node name="BudgetLabel" type="Label" parent="HUD" unique_id=1348417448]
 offset_left = 181.0
 offset_top = 7.0
 offset_right = 221.0
 offset_bottom = 30.0
+visible = false
 
 [node name="TimerLabel" type="Label" parent="HUD" unique_id=1872475505]
-offset_left = 314.0
-offset_top = 5.0
-offset_right = 370.0
-offset_bottom = 37.0
+offset_left = 300.0
+offset_top = 24.0
+offset_right = 500.0
+offset_bottom = 48.0
+horizontal_alignment = 1
 
 [node name="AnnouncementLabel" type="Label" parent="HUD" unique_id=193887011]
 offset_left = 23.0
 offset_top = 36.0
 offset_right = 580.0
 offset_bottom = 60.0
+visible = false
 
 [node name="Concourse_Screen" type="Node2D" parent="." unique_id=2006622733]
 
