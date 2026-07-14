@@ -460,17 +460,45 @@ public partial class SimulationManager : Node
         return -1;
     }
 
+    private readonly float[] _doorOffsetsUnscaled = new float[] { -515.0f, -289.0f, -40.0f, 294.0f, 512.0f };
+
     public Vector2 GetLaneSlotPosition(int laneIndex, int slotIndex)
     {
-        float availableWidth = Math.Max(120.0f, _viewportSize.X - (LaneLeftMargin + LaneRightMargin));
-        float laneSpacing = availableWidth / (LaneCount - 1);
-        float x = LaneLeftMargin + (laneIndex * laneSpacing);
+        float x = 0.0f;
+        if (_trainVehicle != null && _trainParkPositionCaptured)
+        {
+            x = _trainParkPosition.X + (_doorOffsetsUnscaled[laneIndex] * _trainVehicle.Scale.X);
+        }
+        else
+        {
+            float availableWidth = Math.Max(120.0f, _viewportSize.X - (LaneLeftMargin + LaneRightMargin));
+            float laneSpacing = availableWidth / (LaneCount - 1);
+            x = LaneLeftMargin + (laneIndex * laneSpacing);
+        }
+
         float y = LaneTopOffset + (slotIndex * LaneSpacing);
         return new Vector2(x, y);
     }
 
     public int GetLaneFromScreenX(float x)
     {
+        if (_trainVehicle != null && _trainParkPositionCaptured)
+        {
+            int bestLane = 0;
+            float bestDist = float.MaxValue;
+            for (int i = 0; i < LaneCount; i++)
+            {
+                float laneX = _trainParkPosition.X + (_doorOffsetsUnscaled[i] * _trainVehicle.Scale.X);
+                float dist = MathF.Abs(x - laneX);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    bestLane = i;
+                }
+            }
+            return bestLane;
+        }
+
         float availableWidth = Math.Max(120.0f, _viewportSize.X - (LaneLeftMargin + LaneRightMargin));
         float laneSpacing = availableWidth / (LaneCount - 1);
         float clampedX = Math.Clamp(x, LaneLeftMargin, LaneLeftMargin + availableWidth);
