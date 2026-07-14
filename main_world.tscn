@@ -4,6 +4,7 @@
 [ext_resource type="Script" uid="uid://cu0nc1gr4jsl3" path="res://scripts/GameHUD.cs" id="2_uoqbt"]
 [ext_resource type="Texture2D" uid="uid://bbr4pqblm21n3" path="res://icon.svg" id="3_43o5b"]
 [ext_resource type="Texture2D" uid="uid://buhks61rwk33g" path="res://train.png" id="4_3etub"]
+[ext_resource type="Texture2D" uid="uid://c18cytd6nap3d" path="res://Untitled design-no-bg.png" id="5_whfra"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_3etub"]
 texture = ExtResource("3_43o5b")
@@ -781,7 +782,7 @@ tile_set = SubResource("TileSet_43o5b")
 [node name="TrainVehicle" type="Sprite2D" parent="Platform_Screen/Platform_Tiles" unique_id=1354009529]
 position = Vector2(519, 138)
 scale = Vector2(0.845098, 0.9318628)
-texture = ExtResource("4_3etub")
+texture = ExtResource("5_whfra")
 
 [node name="Train_Screen" type="Node2D" parent="." unique_id=889014874]
 visible = false
