@@ -22,6 +22,15 @@ public partial class SimulationManager : Node
 {
 	public static SimulationManager Instance { get; private set; }
 
+	private string _currentGameTime = "05:30 AM";
+	private int _currentWaveCount = 1;
+	private int _rushHourWavesSpawned = 0;
+	private int _middayWavesSpawned = 0;
+	private float _normalSpawnRate = 8f; // base number of commuters
+	private bool _victoryTriggered = false;
+
+	public string CurrentGameTime => _currentGameTime;
+
 	public Node2D ConcourseScreen { get; set; }
 	public Node2D PlatformScreen { get; set; }
 	public Node2D TrainScreen { get; set; }
@@ -144,6 +153,26 @@ public partial class SimulationManager : Node
 		float d = (float)delta;
 		UpdateViewportBounds();
 		ResolveSceneReferences();
+
+		if (_currentGameTime == "02:30 PM" && !_victoryTriggered)
+		{
+			bool allPlatformCleared = true;
+			foreach (var p in Passengers)
+			{
+				if (IsInstanceValid(p) && p.CurrentPerspective == Perspective.PLATFORM)
+				{
+					allPlatformCleared = false;
+					break;
+				}
+			}
+
+			if (allPlatformCleared)
+			{
+				_victoryTriggered = true;
+				TriggerVictory();
+				return;
+			}
+		}
 
 		if (_isAirconDialogOpen)
 		{
@@ -365,6 +394,11 @@ public partial class SimulationManager : Node
 	{
 		ClearPassengers(true);
 		CurrentRound = 1;
+		_currentGameTime = "05:30 AM";
+		_currentWaveCount = 1;
+		_rushHourWavesSpawned = 0;
+		_middayWavesSpawned = 0;
+		_victoryTriggered = false;
 		CurrentState = TrainRoundState.WaitingForTrain;
 		CurrentRoundDuration = BaseRoundDuration;
 		RoundTimeRemaining = BaseRoundDuration;
@@ -427,6 +461,11 @@ public partial class SimulationManager : Node
 
 	private void StartNextRound()
 	{
+		if (_currentGameTime == "02:30 PM")
+		{
+			return;
+		}
+
 		CurrentRound++;
 		BeginRound();
 	}
@@ -564,6 +603,74 @@ public partial class SimulationManager : Node
 		}
 
 		OnFlashNotification?.Invoke(notificationText, notificationColor);
+		AdvanceClockAndWave();
+	}
+
+	private void AdvanceClockAndWave()
+	{
+		if (_currentWaveCount == 1)
+		{
+			_currentGameTime = "06:00 AM";
+			_currentWaveCount = 2;
+		}
+		else if (_currentWaveCount >= 2 && _currentWaveCount <= 4)
+		{
+			_rushHourWavesSpawned++;
+			if (_currentWaveCount == 2)
+			{
+				_currentGameTime = "06:30 AM";
+				_currentWaveCount = 3;
+			}
+			else if (_currentWaveCount == 3)
+			{
+				_currentGameTime = "07:00 AM";
+				_currentWaveCount = 4;
+			}
+			else if (_currentWaveCount == 4)
+			{
+				_currentGameTime = "10:00 AM";
+				_currentWaveCount = 5;
+			}
+		}
+		else if (_currentWaveCount == 5 || _currentWaveCount == 6)
+		{
+			_middayWavesSpawned++;
+			if (_currentWaveCount == 5)
+			{
+				_currentGameTime = "10:30 AM";
+				_currentWaveCount = 6;
+			}
+			else if (_currentWaveCount == 6)
+			{
+				_currentGameTime = "01:00 PM";
+				_currentWaveCount = 7;
+			}
+		}
+		else if (_currentWaveCount >= 7 && _currentWaveCount <= 9)
+		{
+			if (_currentWaveCount == 7)
+			{
+				_currentGameTime = "01:30 PM";
+				_currentWaveCount = 8;
+			}
+			else if (_currentWaveCount == 8)
+			{
+				_currentGameTime = "02:00 PM";
+				_currentWaveCount = 9;
+			}
+			else if (_currentWaveCount == 9)
+			{
+				_currentGameTime = "02:30 PM";
+				_currentWaveCount = 10;
+			}
+		}
+	}
+
+	private void TriggerVictory()
+	{
+		ClearPassengers(true);
+		var dialog = new VictoryDialog();
+		GetTree().CurrentScene.AddChild(dialog);
 	}
 
 	private void EvaluateRound()
@@ -668,10 +775,30 @@ public partial class SimulationManager : Node
 
 	private void PreparePassengerSpawns()
 	{
-		// Dynamically scale passenger counts as the round progresses
-		int minCount = 10 + (CurrentRound * 2);
-		int maxCount = 15 + (CurrentRound * 3);
-		CurrentRoundPassengerCount = _random.Next(minCount, maxCount + 1);
+		float multiplier = 1.0f;
+
+		if (_currentGameTime == "05:30 AM")
+		{
+			multiplier = 1.0f;
+		}
+		else if (_currentGameTime == "06:00 AM" || _currentGameTime == "06:30 AM" || _currentGameTime == "07:00 AM")
+		{
+			multiplier = 3.0f;
+		}
+		else if (_currentGameTime == "10:00 AM" || _currentGameTime == "10:30 AM")
+		{
+			multiplier = 1.0f;
+		}
+		else if (_currentGameTime == "01:00 PM" || _currentGameTime == "01:30 PM" || _currentGameTime == "02:00 PM")
+		{
+			multiplier = 3.0f;
+		}
+		else
+		{
+			multiplier = 1.0f;
+		}
+
+		CurrentRoundPassengerCount = (int)Math.Round(_normalSpawnRate * multiplier);
 		_pendingPassengerSpawns = CurrentRoundPassengerCount;
 
 		// Calculate dynamic spawn window buffer so passengers finish spawning early in early rounds,

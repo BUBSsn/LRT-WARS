@@ -14,6 +14,9 @@ public partial class GameHUD : CanvasLayer
 	[Export]
 	public Label AnnouncementLabel { get; set; }
 
+	[Export]
+	public Label ClockLabel { get; set; }
+
 	private StyleBoxFlat _rageFillStyle;
 
 	public override void _Ready()
@@ -40,6 +43,27 @@ public partial class GameHUD : CanvasLayer
 		if (sim == null)
 		{
 			return;
+		}
+
+		if (ClockLabel == null)
+		{
+			ClockLabel = GetNodeOrNull<Label>("ClockLabel");
+			if (ClockLabel == null)
+			{
+				ClockLabel = new Label();
+				ClockLabel.Name = "ClockLabel";
+				ClockLabel.Position = new Vector2(680.0f, 24.0f);
+				ClockLabel.Size = new Vector2(100.0f, 24.0f);
+				ClockLabel.HorizontalAlignment = HorizontalAlignment.Right;
+				ClockLabel.AddThemeColorOverride("font_color", new Color(1.0f, 0.85f, 0.2f)); // vibrant gold/yellow
+				ClockLabel.AddThemeFontSizeOverride("font_size", 18);
+				AddChild(ClockLabel);
+			}
+		}
+
+		if (ClockLabel != null)
+		{
+			ClockLabel.Text = sim.CurrentGameTime;
 		}
 
 		// --- Rage Bar (green → red) ---
