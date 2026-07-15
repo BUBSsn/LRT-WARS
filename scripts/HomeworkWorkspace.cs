@@ -57,7 +57,7 @@ public partial class HomeworkWorkspace : Node2D
 
         if (_draggedPassenger != null)
         {
-            if (sim.CurrentState != TrainRoundState.WaitingForTrain && sim.CurrentState != TrainRoundState.Arriving)
+            if (sim.CurrentState != TrainRoundState.WaitingForTrain && sim.CurrentState != TrainRoundState.Arriving && !sim.IsFixingStandby && !sim.IsStandbyBufferActive)
             {
                 Vector2 dropPos = GetGlobalMousePosition();
                 if (sim.ActivePerspective == Perspective.PLATFORM && GuardHouseHitbox.HasPoint(dropPos))

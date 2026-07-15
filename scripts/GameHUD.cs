@@ -59,19 +59,40 @@ public partial class GameHUD : CanvasLayer
 		// --- Timer: only show when the train hasn't arrived yet ---
 		if (TimerLabel != null)
 		{
-			switch (sim.CurrentState)
+			if (sim.IsFixingStandby)
 			{
-				case TrainRoundState.WaitingForTrain:
-					TimerLabel.Visible = true;
-					TimerLabel.Text = $"TRAIN IN {sim.RoundTimeRemaining:0.0}s";
-					break;
-				case TrainRoundState.Arriving:
-					TimerLabel.Visible = true;
-					TimerLabel.Text = $"ARRIVING {sim.RoundTimeRemaining:0.0}s";
-					break;
-				default:
-					TimerLabel.Visible = false;
-					break;
+				TimerLabel.Visible = true;
+				int pendingCount = 0;
+				foreach (var p in sim.Passengers)
+				{
+					if (GodotObject.IsInstanceValid(p) && p.LaneIndex == -1)
+					{
+						pendingCount++;
+					}
+				}
+				TimerLabel.Text = $"🔧 REPAIRING AIRCON... ({pendingCount + sim.PendingPassengerSpawns} IN CONCOURSE)";
+			}
+			else if (sim.IsStandbyBufferActive)
+			{
+				TimerLabel.Visible = true;
+				TimerLabel.Text = $"⏳ ARRANGING: {sim.StandbyBufferTimer:0.0}s";
+			}
+			else
+			{
+				switch (sim.CurrentState)
+				{
+					case TrainRoundState.WaitingForTrain:
+						TimerLabel.Visible = true;
+						TimerLabel.Text = $"TRAIN IN {sim.RoundTimeRemaining:0.0}s";
+						break;
+					case TrainRoundState.Arriving:
+						TimerLabel.Visible = true;
+						TimerLabel.Text = $"ARRIVING {sim.RoundTimeRemaining:0.0}s";
+						break;
+					default:
+						TimerLabel.Visible = false;
+						break;
+				}
 			}
 		}
 	}

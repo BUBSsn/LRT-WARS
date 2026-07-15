@@ -47,6 +47,17 @@ public partial class SimulationManager : Node
 	private const float LaneSpacing = 34.0f;
 	[Export]
 	public float LaneTopOffset { get; set; } = 240.0f;
+	[Export]
+	public float AirconBreakChance { get; set; } = 1.0f; // 100% for testing. Set to 0.1f for 10% chance.
+	private bool _isAirconDialogOpen = false;
+	private bool _isFixingStandby = false;
+	private bool _isStandbyBufferActive = false;
+	private float _standbyBufferTimer = 0.0f;
+
+	public bool IsFixingStandby => _isFixingStandby;
+	public bool IsStandbyBufferActive => _isStandbyBufferActive;
+	public float StandbyBufferTimer => _standbyBufferTimer;
+	public int PendingPassengerSpawns => _pendingPassengerSpawns;
 	private const float LaneLeftMargin = 120.0f;
 	private const float LaneRightMargin = 120.0f;
 	private const float SpawnOffset = 48.0f;
@@ -134,6 +145,11 @@ public partial class SimulationManager : Node
 		UpdateViewportBounds();
 		ResolveSceneReferences();
 
+		if (_isAirconDialogOpen)
+		{
+			return;
+		}
+
 		if (CurrentState == TrainRoundState.WaitingForTrain)
 		{
 			RoundElapsed += d;
@@ -176,29 +192,57 @@ public partial class SimulationManager : Node
 
 			if (_arrivalTimer >= TrainArrivalSeconds)
 			{
-				CurrentState = TrainRoundState.Stopped;
-				RoundTimeRemaining = 3.0f;
-				OnFlashNotification?.Invoke("🛑 TRAIN STOPPED - ARRANGING CLOSED", Colors.OrangeRed);
-
-				for (int l = 0; l < LaneCount; l++)
+				float breakRoll = (float)_random.NextDouble();
+				if (breakRoll < AirconBreakChance)
 				{
-					var lanePassengers = GetLanePassengers(l);
-					_initialLaneCounts[l] = lanePassengers.Count;
-					_laneBoardingTimers[l] = 0.0f;
-					StartNextBoardingStep(l);
+					TriggerAirconMalfunction();
+				}
+				else
+				{
+					StartTrainStoppedState();
 				}
 			}
 		}
 		else if (CurrentState == TrainRoundState.Stopped)
 		{
-			RoundElapsed += d;
-			RoundTimeRemaining = Math.Max(0.0f, RoundTimeRemaining - d);
-
 			if (_trainVehicle != null)
 			{
 				_trainVehicle.Visible = true;
 				_trainVehicle.Position = _trainParkPosition;
 			}
+
+			if (_isFixingStandby)
+			{
+				ProcessPassengerSpawns(d);
+				UpdateWalkingPassengers();
+				LayoutPassengers();
+
+				if (AreAllPassengersLinedUp())
+				{
+					_isFixingStandby = false;
+					_isStandbyBufferActive = true;
+					_standbyBufferTimer = 5.0f;
+					OnFlashNotification?.Invoke("⏳ AIRCON FIXED! 5s TO ARRANGE PASSENGERS!", Colors.Yellow);
+				}
+				return;
+			}
+
+			if (_isStandbyBufferActive)
+			{
+				_standbyBufferTimer = Math.Max(0.0f, _standbyBufferTimer - d);
+				UpdateWalkingPassengers();
+				LayoutPassengers();
+
+				if (_standbyBufferTimer <= 0.0f)
+				{
+					_isStandbyBufferActive = false;
+					StartTrainStoppedState();
+				}
+				return;
+			}
+
+			RoundElapsed += d;
+			RoundTimeRemaining = Math.Max(0.0f, RoundTimeRemaining - d);
 
 			ProcessPassengerSpawns(d);
 			UpdateWalkingPassengers();
@@ -341,6 +385,10 @@ public partial class SimulationManager : Node
 		_nextSpawnOrder = 0;
 		_pendingPassengerSpawns = 0;
 		_nextPassengerSpawnDelay = 0.0f;
+		_isAirconDialogOpen = false;
+		_isFixingStandby = false;
+		_isStandbyBufferActive = false;
+		_standbyBufferTimer = 0.0f;
 		OnFlashNotification?.Invoke("TRAIN SYSTEM RESET", Colors.DarkCyan);
 		BeginRound();
 	}
@@ -381,6 +429,80 @@ public partial class SimulationManager : Node
 	{
 		CurrentRound++;
 		BeginRound();
+	}
+
+	private void TriggerAirconMalfunction()
+	{
+		CurrentState = TrainRoundState.Stopped;
+		if (_trainVehicle != null)
+		{
+			_trainVehicle.Visible = true;
+			_trainVehicle.Position = _trainParkPosition;
+		}
+
+		_isAirconDialogOpen = true;
+
+		var dialog = new AirconDialog();
+		dialog.OnChoiceMade = (bool fixIt) =>
+		{
+			_isAirconDialogOpen = false;
+			if (fixIt)
+			{
+				StartAirconFixStandby();
+			}
+			else
+			{
+				AdjustRage(25.0f);
+				OnFlashNotification?.Invoke("🚪 LET THEM IN - RAGE SPIKED BY 25!", Colors.OrangeRed);
+				StartTrainStoppedState();
+			}
+		};
+
+		GetTree().CurrentScene.AddChild(dialog);
+	}
+
+	private void StartTrainStoppedState()
+	{
+		CurrentState = TrainRoundState.Stopped;
+		RoundTimeRemaining = 3.0f;
+		OnFlashNotification?.Invoke("🛑 TRAIN STOPPED - ARRANGING CLOSED", Colors.OrangeRed);
+
+		for (int l = 0; l < LaneCount; l++)
+		{
+			var lanePassengers = GetLanePassengers(l);
+			_initialLaneCounts[l] = lanePassengers.Count;
+			_laneBoardingTimers[l] = 0.0f;
+			StartNextBoardingStep(l);
+		}
+	}
+
+	private void StartAirconFixStandby()
+	{
+		_isFixingStandby = true;
+		CurrentState = TrainRoundState.Stopped;
+		
+		CurrentRound++;
+		PreparePassengerSpawns();
+
+		OnFlashNotification?.Invoke($"🔧 FIXING AIRCON - STANDBY FOR WAVE {CurrentRound}!", Colors.Orange);
+	}
+
+	private bool AreAllPassengersLinedUp()
+	{
+		if (_pendingPassengerSpawns > 0)
+		{
+			return false;
+		}
+
+		foreach (var p in Passengers)
+		{
+			if (IsInstanceValid(p) && !p.IsDragging && p.LaneIndex == -1)
+			{
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	private void FinalizeRound()
@@ -1053,7 +1175,7 @@ public partial class SimulationManager : Node
 	{
 		passenger = null;
 
-		if (CurrentState != TrainRoundState.WaitingForTrain && CurrentState != TrainRoundState.Arriving)
+		if (CurrentState != TrainRoundState.WaitingForTrain && CurrentState != TrainRoundState.Arriving && !_isFixingStandby && !_isStandbyBufferActive)
 		{
 			return false;
 		}
