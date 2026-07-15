@@ -57,9 +57,53 @@ public partial class HomeworkWorkspace : Node2D
             return;
         }
 
-        if (@event is InputEventMouseButton mouseButton && mouseButton.ButtonIndex == MouseButton.Left)
+        if (sim.ActivePerspective == Perspective.UNDER_STATION)
         {
-            if (mouseButton.Pressed)
+            var minigame = GetTree().CurrentScene?.FindChild("WireMinigame", true, false) as WireMinigame;
+            if (minigame != null && minigame.Visible)
+            {
+                return;
+            }
+
+            if (@event is InputEventMouseButton mouseButton && mouseButton.ButtonIndex == MouseButton.Left && mouseButton.Pressed)
+            {
+                Vector2 clickPos = GetGlobalMousePosition();
+
+                var esc = sim.EscalatorDevice;
+                if (esc != null && IsInstanceValid(esc))
+                {
+                    Vector2 localPos = esc.ToLocal(clickPos);
+                    Rect2 clickBox = new Rect2(-120, -250, 240, 500);
+                    if (clickBox.HasPoint(localPos))
+                    {
+                        esc.OnClickTriggered();
+                        return;
+                    }
+                }
+
+                foreach (var tvm in sim.TicketMachines)
+                {
+                    if (IsInstanceValid(tvm))
+                    {
+                        Vector2 localPos = tvm.ToLocal(clickPos);
+                        Rect2 clickBox = new Rect2(-60, -60, 120, 120);
+                        if (clickBox.HasPoint(localPos))
+                        {
+                            if (tvm.IsBroken)
+                            {
+                                tvm.Repair();
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        if (@event is InputEventMouseButton mb && mb.ButtonIndex == MouseButton.Left)
+        {
+            if (mb.Pressed)
             {
                 if (_draggedPassenger == null && sim.TryStartDraggingPassenger(GetGlobalMousePosition(), out var passenger))
                 {

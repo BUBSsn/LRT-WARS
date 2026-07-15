@@ -1,0 +1,105 @@
+[gd_scene load_steps=2 format=3 uid="uid://b123456789"]
+
+[ext_resource type="Script" path="res://scripts/WireMinigame.cs" id="1_wire_minigame"]
+
+[node name="WireMinigame" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_wire_minigame")
+
+[node name="PopupPanel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -250.0
+offset_top = -200.0
+offset_right = 250.0
+offset_bottom = 200.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="LeftPlug_0" type="ColorRect" parent="PopupPanel"]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 50.0
+offset_right = 90.0
+offset_bottom = 90.0
+
+[node name="LeftPlug_1" type="ColorRect" parent="PopupPanel"]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 130.0
+offset_right = 90.0
+offset_bottom = 170.0
+
+[node name="LeftPlug_2" type="ColorRect" parent="PopupPanel"]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 210.0
+offset_right = 90.0
+offset_bottom = 250.0
+
+[node name="LeftPlug_3" type="ColorRect" parent="PopupPanel"]
+layout_mode = 0
+offset_left = 50.0
+offset_top = 290.0
+offset_right = 90.0
+offset_bottom = 330.0
+
+[node name="RightPlug_0" type="ColorRect" parent="PopupPanel"]
+layout_mode = 0
+offset_left = 410.0
+offset_top = 50.0
+offset_right = 450.0
+offset_bottom = 90.0
+
+[node name="RightPlug_1" type="ColorRect" parent="PopupPanel"]
+layout_mode = 0
+offset_left = 410.0
+offset_top = 130.0
+offset_right = 450.0
+offset_bottom = 170.0
+
+[node name="RightPlug_2" type="ColorRect" parent="PopupPanel"]
+layout_mode = 0
+offset_left = 410.0
+offset_top = 210.0
+offset_right = 450.0
+offset_bottom = 250.0
+
+[node name="RightPlug_3" type="ColorRect" parent="PopupPanel"]
+layout_mode = 0
+offset_left = 410.0
+offset_top = 290.0
+offset_right = 450.0
+offset_bottom = 330.0
+
+[node name="EmergencyRepairButton" type="Button" parent="PopupPanel"]
+layout_mode = 0
+offset_left = 120.0
+offset_top = 345.0
+offset_right = 380.0
+offset_bottom = 385.0
+text = "Emergency Repair ($1200)"
+
+[node name="ActiveLine" type="Line2D" parent="PopupPanel"]
+width = 8.0
+
+[node name="MatchLine_0" type="Line2D" parent="PopupPanel"]
+width = 8.0
+
+[node name="MatchLine_1" type="Line2D" parent="PopupPanel"]
+width = 8.0
+
+[node name="MatchLine_2" type="Line2D" parent="PopupPanel"]
+width = 8.0
+
+[node name="MatchLine_3" type="Line2D" parent="PopupPanel"]
+width = 8.0

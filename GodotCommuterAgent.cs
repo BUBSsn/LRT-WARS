@@ -15,7 +15,28 @@ public partial class GodotCommuterAgent : Node2D
 
     public Perspective CurrentPerspective { get; set; } = Perspective.UNDER_STATION;
     public float MovementSpeed { get; set; } = 240.0f;
-    public float IndividualRage { get; set; } = 0.0f;
+    private float _individualRage = 0.0f;
+    public float IndividualRage
+    {
+        get => _individualRage;
+        set
+        {
+            if (value >= 100.0f && _individualRage < 100.0f)
+            {
+                _rageSpikeTimer = 3.0f;
+                _hasSpikedOnce = true;
+            }
+            _individualRage = value;
+        }
+    }
+
+    private float _rageSpikeTimer = 0.0f;
+    private bool _hasSpikedOnce = false;
+
+    public enum ConcourseState { None, WalkingToTVM, BuyingTicket, WalkingToEscalator, RidingEscalator, Completed }
+    public ConcourseState CurrentConcourseState { get; set; } = ConcourseState.None;
+    public float ConcourseTimer { get; set; } = 0.0f;
+    public GodotTVM TargetTVM { get; set; }
     
     private bool _isPriority = false;
     public bool IsPriority 
@@ -136,11 +157,15 @@ public partial class GodotCommuterAgent : Node2D
         {
             AgentSprite.Modulate = Colors.DarkGoldenrod;
         }
-        else if (IndividualRage > 25.0f)
+        else if (_rageSpikeTimer > 0.0f)
         {
             AgentSprite.Modulate = Colors.DarkRed;
         }
-        else if (IndividualRage > 10.0f)
+        else if (IndividualRage > 25.0f && !_hasSpikedOnce)
+        {
+            AgentSprite.Modulate = Colors.DarkRed;
+        }
+        else if (IndividualRage > 10.0f && !_hasSpikedOnce)
         {
             AgentSprite.Modulate = Colors.Orange;
         }
@@ -152,38 +177,53 @@ public partial class GodotCommuterAgent : Node2D
 
     public override void _Process(double delta)
     {
-        var sim = SimulationManager.Instance;
-        if (sim != null && CurrentPerspective != sim.ActivePerspective)
+        if (_rageSpikeTimer > 0.0f)
         {
-            Visible = false;
-            return;
+            _rageSpikeTimer = Math.Max(0.0f, _rageSpikeTimer - (float)delta);
         }
-        Visible = true;
+        var sim = SimulationManager.Instance;
+        if (sim != null)
+        {
+            Visible = (CurrentPerspective == sim.ActivePerspective);
+        }
+        else
+        {
+            Visible = true;
+        }
 
         UpdateVisuals();
 
         bool isMoving = false;
         Vector2 velocity = Vector2.Zero;
 
-        if (IsWalkingToLane && !IsDragging && !IsFrozen)
+        if (CurrentPerspective == Perspective.UNDER_STATION)
         {
             Vector2 oldPos = Position;
-            UpdateLaneWalk((float)delta);
-            isMoving = IsWalkingToLane;
+            UpdateConcourse(delta, out isMoving);
             velocity = Position - oldPos;
         }
-        else if (LegacyMovementEnabled && !IsFrozen && !IsDragging)
+        else
         {
-            Vector2 dir = TargetPosition - Position;
-            float dist = dir.Length();
-            
-            if (dist > 8.0f)
+            if (IsWalkingToLane && !IsDragging && !IsFrozen)
             {
-                Vector2 norm = dir.Normalized();
                 Vector2 oldPos = Position;
-                Position += norm * MovementSpeed * TargetMultiplier * (float)delta;
-                isMoving = true;
+                UpdateLaneWalk((float)delta);
+                isMoving = IsWalkingToLane;
                 velocity = Position - oldPos;
+            }
+            else if (LegacyMovementEnabled && !IsFrozen && !IsDragging)
+            {
+                Vector2 dir = TargetPosition - Position;
+                float dist = dir.Length();
+                
+                if (dist > 8.0f)
+                {
+                    Vector2 norm = dir.Normalized();
+                    Vector2 oldPos = Position;
+                    Position += norm * MovementSpeed * TargetMultiplier * (float)delta;
+                    isMoving = true;
+                    velocity = Position - oldPos;
+                }
             }
         }
 
@@ -255,6 +295,15 @@ public partial class GodotCommuterAgent : Node2D
     {
         Vector2 target = WalkTargetPosition;
         float step = MovementSpeed * TargetMultiplier * delta;
+
+        // If the agent is below target Y (e.g. rising from escalator shaft), walk UP first
+        float hallwayY = target.Y;
+        if (Position.Y > hallwayY + 2.0f)
+        {
+            Position = new Vector2(Position.X, MoveToward(Position.Y, hallwayY, step));
+            return;
+        }
+
         float xDelta = MathF.Abs(Position.X - target.X);
         float yDelta = MathF.Abs(Position.Y - target.Y);
 
@@ -283,5 +332,154 @@ public partial class GodotCommuterAgent : Node2D
     public bool ContainsPoint(Vector2 point, float hitRadius)
     {
         return GlobalPosition.DistanceTo(point) <= hitRadius;
+    }
+
+    private void UpdateConcourse(double delta, out bool isMoving)
+    {
+        isMoving = false;
+        var sim = SimulationManager.Instance;
+        if (sim == null) return;
+
+        if (CurrentConcourseState == ConcourseState.WalkingToTVM)
+        {
+            if (TargetTVM == null || !IsInstanceValid(TargetTVM) || TargetTVM.IsBroken)
+            {
+                var newTvm = FindShortestTVMQueue();
+                if (newTvm != null)
+                {
+                    TargetTVM = newTvm;
+                }
+                else
+                {
+                    IndividualRage = Math.Min(100.0f, IndividualRage + 1.5f * (float)delta);
+                    sim.BalanceMeter = Math.Max(0.0f, sim.BalanceMeter - 0.05f * (float)delta);
+                    return;
+                }
+            }
+
+            Vector2 target = TargetTVM.Position;
+            Vector2 dir = target - Position;
+            float dist = dir.Length();
+            if (dist > 10.0f)
+            {
+                Vector2 stepVec = dir.Normalized() * MovementSpeed * (float)delta;
+                Position += stepVec;
+                isMoving = true;
+            }
+            else
+            {
+                CurrentConcourseState = ConcourseState.BuyingTicket;
+                ConcourseTimer = 1.2f;
+            }
+        }
+        else if (CurrentConcourseState == ConcourseState.BuyingTicket)
+        {
+            if (TargetTVM == null || !IsInstanceValid(TargetTVM) || TargetTVM.IsBroken)
+            {
+                var newTvm = FindShortestTVMQueue();
+                if (newTvm != null)
+                {
+                    TargetTVM = newTvm;
+                    CurrentConcourseState = ConcourseState.WalkingToTVM;
+                }
+                else
+                {
+                    IndividualRage = Math.Min(100.0f, IndividualRage + 1.5f * (float)delta);
+                    sim.BalanceMeter = Math.Max(0.0f, sim.BalanceMeter - 0.05f * (float)delta);
+                }
+                return;
+            }
+
+            ConcourseTimer -= (float)delta;
+            if (ConcourseTimer <= 0.0f)
+            {
+                if (TargetTVM.TryBuyTicket())
+                {
+                    CurrentConcourseState = ConcourseState.WalkingToEscalator;
+                }
+                else
+                {
+                    var newTvm = FindShortestTVMQueue();
+                    if (newTvm != null)
+                    {
+                        TargetTVM = newTvm;
+                        CurrentConcourseState = ConcourseState.WalkingToTVM;
+                    }
+                }
+            }
+        }
+        else if (CurrentConcourseState == ConcourseState.WalkingToEscalator)
+        {
+            var esc = sim.EscalatorDevice;
+            if (esc == null || !IsInstanceValid(esc)) return;
+
+            Vector2 target = esc.Position + new Vector2(0.0f, 150.0f);
+            Vector2 dir = target - Position;
+            float dist = dir.Length();
+            if (dist > 10.0f)
+            {
+                Vector2 stepVec = dir.Normalized() * MovementSpeed * (float)delta;
+                Position += stepVec;
+                isMoving = true;
+            }
+            else
+            {
+                CurrentConcourseState = ConcourseState.RidingEscalator;
+            }
+        }
+        else if (CurrentConcourseState == ConcourseState.RidingEscalator)
+        {
+            var esc = sim.EscalatorDevice;
+            if (esc == null || !IsInstanceValid(esc)) return;
+
+            if (esc.IsBroken)
+            {
+                return;
+            }
+
+            Vector2 target = esc.Position + new Vector2(0.0f, -150.0f);
+            Vector2 dir = target - Position;
+            float dist = dir.Length();
+            if (dist > 10.0f)
+            {
+                Vector2 stepVec = dir.Normalized() * MovementSpeed * esc.SpeedMultiplier * (float)delta;
+                Position += stepVec;
+                isMoving = true;
+            }
+            else
+            {
+                CurrentConcourseState = ConcourseState.Completed;
+                sim.TransitionPassengerToPlatform(this);
+            }
+        }
+    }
+
+    public GodotTVM FindShortestTVMQueue()
+    {
+        var sim = SimulationManager.Instance;
+        if (sim == null || sim.TicketMachines.Count == 0) return null;
+
+        GodotTVM best = null;
+        int bestCount = int.MaxValue;
+        foreach (var tvm in sim.TicketMachines)
+        {
+            if (IsInstanceValid(tvm) && !tvm.IsBroken)
+            {
+                int count = 0;
+                foreach (var passenger in sim.Passengers)
+                {
+                    if (IsInstanceValid(passenger) && passenger.TargetTVM == tvm && passenger.CurrentConcourseState == ConcourseState.WalkingToTVM)
+                    {
+                        count++;
+                    }
+                }
+                if (count < bestCount)
+                {
+                    bestCount = count;
+                    best = tvm;
+                }
+            }
+        }
+        return best;
     }
 }

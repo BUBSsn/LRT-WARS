@@ -62,9 +62,19 @@ public partial class SimulationManager : Node
     public float RoundElapsed { get; private set; } = 0.0f;
     public float CurrentRoundScore { get; private set; } = 0.0f;
     public float CumulativeScore { get; private set; } = 0.0f;
+
+    public float Budget
+    {
+        get => CumulativeScore;
+        set => CumulativeScore = value;
+    }
+
+    public readonly List<GodotTVM> TicketMachines = new List<GodotTVM>();
+    public GodotEscalator EscalatorDevice { get; private set; }
+    private WireMinigame _wireMinigameNode;
     public bool CurrentRoundBalanced { get; private set; } = false;
     public string RoundResultText { get; private set; } = "";
-    public float BalanceMeter { get; private set; } = 100.0f;
+    public float BalanceMeter { get; set; } = 100.0f;
     public int CurrentRoundPassengerCount { get; private set; } = 15;
 
     private float _currentRageScore = 100.0f;
@@ -266,6 +276,9 @@ public partial class SimulationManager : Node
                 _trainVehicle.Position = _trainParkPosition.Lerp(_trainOffscreenRight, easedProgress);
             }
 
+            ProcessPassengerSpawns(d);
+            UpdateWalkingPassengers();
+
             if (_transitionTimer >= TrainDepartureSeconds)
             {
                 StartNextRound();
@@ -306,7 +319,7 @@ public partial class SimulationManager : Node
 
     public void ResetSimulation()
     {
-        ClearPassengers();
+        ClearPassengers(true);
         CurrentRound = 1;
         CurrentState = TrainRoundState.WaitingForTrain;
         CurrentRoundDuration = BaseRoundDuration;
@@ -341,7 +354,7 @@ public partial class SimulationManager : Node
 
     private void BeginRound()
     {
-        ClearPassengers();
+        ClearPassengers(false);
         ResolveSceneReferences();
         CaptureTrainParkPosition();
 
@@ -381,15 +394,13 @@ public partial class SimulationManager : Node
         CurrentState = TrainRoundState.Scoring;
         _transitionTimer = 0.0f;
 
-        // Stop all remaining passengers from walking so they don't
-        // continue their upward boarding animation while the train departs.
+        // Spike rage of passengers who did not make it onto the train
         for (int i = 0; i < Passengers.Count; i++)
         {
             var p = Passengers[i];
             if (IsInstanceValid(p))
             {
-                p.IsWalkingToLane = false;
-                p.LegacyMovementEnabled = false;
+                p.IndividualRage = 100.0f;
             }
         }
 
@@ -409,19 +420,38 @@ public partial class SimulationManager : Node
 
     private void EvaluateRound()
     {
-        float score = CalculatePotentialScore(out bool isBalanced);
-        CurrentRoundScore = score;
+        float balanceScore = CalculatePotentialScore(out bool isBalanced);
+        CurrentRoundScore = balanceScore;
         CurrentRoundBalanced = isBalanced;
-        BalanceMeter = score;
+        BalanceMeter = balanceScore;
+
+        // Calculate average individual rage of all active round passengers
+        float totalIndividualRage = 0.0f;
+        int activeCount = 0;
+        foreach (var p in Passengers)
+        {
+            if (IsInstanceValid(p))
+            {
+                totalIndividualRage += p.IndividualRage;
+                activeCount++;
+            }
+        }
+        float avgIndividualRage = activeCount > 0 ? (totalIndividualRage / activeCount) : 0.0f;
+
+        // Commuter satisfaction score (100 = 0 rage, 0 = 100 max rage)
+        float satisfactionScore = 100.0f - avgIndividualRage;
+
+        // Combined performance of balance and satisfaction
+        float roundPerformance = (0.5f * balanceScore) + (0.5f * satisfactionScore);
 
         if (!_hasCompletedAnyRound)
         {
-            _currentRageScore = score;
+            _currentRageScore = roundPerformance;
             _hasCompletedAnyRound = true;
         }
         else
         {
-            _currentRageScore = (0.35f * score) + (0.65f * _currentRageScore);
+            _currentRageScore = (0.35f * roundPerformance) + (0.65f * _currentRageScore);
         }
     }
 
@@ -490,12 +520,16 @@ public partial class SimulationManager : Node
 
     private void PreparePassengerSpawns()
     {
-        // Choose a random passenger count in [20, 35]
-        CurrentRoundPassengerCount = _random.Next(20, 36);
+        // Dynamically scale passenger counts as the round progresses
+        int minCount = 10 + (CurrentRound * 2);
+        int maxCount = 15 + (CurrentRound * 3);
+        CurrentRoundPassengerCount = _random.Next(minCount, maxCount + 1);
         _pendingPassengerSpawns = CurrentRoundPassengerCount;
 
-        // Calculate even spawn interval to finish exactly at 5.0s remaining
-        float spawnWindow = Math.Max(2.0f, CurrentRoundDuration - 5.0f);
+        // Calculate dynamic spawn window buffer so passengers finish spawning early in early rounds,
+        // but spawn tighter as the difficulty scales up
+        float spawnEndBuffer = Math.Max(5.0f, 9.0f - (CurrentRound - 1) * 0.8f);
+        float spawnWindow = Math.Max(2.0f, CurrentRoundDuration - spawnEndBuffer);
         _spawnInterval = spawnWindow / _pendingPassengerSpawns;
         _nextPassengerSpawnDelay = 0.0f; // Start spawning the first one immediately!
 
@@ -526,8 +560,7 @@ public partial class SimulationManager : Node
 
     private void ProcessPassengerSpawns(float delta)
     {
-        if ((CurrentState != TrainRoundState.WaitingForTrain && CurrentState != TrainRoundState.Arriving)
-            || _pendingPassengerSpawns <= 0)
+        if (_pendingPassengerSpawns <= 0)
         {
             return;
         }
@@ -597,34 +630,70 @@ public partial class SimulationManager : Node
         passenger.SpawnOrder = _nextSpawnOrder++;
         passenger.LaneIndex = -1;
 
-        // Use precalculated balanced lane if available, otherwise fall back to random
+        passenger.LaneSlotIndex = -1;
+        passenger.LegacyMovementEnabled = false;
+        passenger.IsTrainPassenger = true;
+        passenger.IsDragging = false;
+        passenger.IsWalkingToLane = false;
+        passenger.CurrentPerspective = Perspective.UNDER_STATION;
+
+        // Spawn point in concourse (bottom-left entry region)
+        passenger.Position = new Vector2(50.0f, 500.0f);
+
+        ResolveSceneReferences();
+        var tvm = passenger.FindShortestTVMQueue();
+        if (tvm != null)
+        {
+            passenger.TargetTVM = tvm;
+        }
+        else if (TicketMachines.Count > 0)
+        {
+            passenger.TargetTVM = TicketMachines[0];
+        }
+        passenger.CurrentConcourseState = GodotCommuterAgent.ConcourseState.WalkingToTVM;
+
+        AddPassengerToWorld(passenger);
+        Passengers.Add(passenger);
+
+        passenger.MovementSpeed = 240.0f;
+    }
+
+    public void TransitionPassengerToPlatform(GodotCommuterAgent passenger)
+    {
+        if (!IsInstanceValid(passenger)) return;
+
+        ResolveSceneReferences();
+
+        if (_concourseScreen != null && _platformScreen != null)
+        {
+            passenger.CallDeferred("reparent", _platformScreen, false);
+        }
+
+        passenger.CurrentPerspective = Perspective.PLATFORM;
+        passenger.Visible = (ActivePerspective == Perspective.PLATFORM);
+
+        passenger.IsTrainPassenger = true;
+        passenger.IsDragging = false;
+        
         int spawnIndex = passenger.SpawnOrder;
         passenger.TargetLaneIndex = (spawnIndex < _precalculatedTargetLanes.Count)
             ? _precalculatedTargetLanes[spawnIndex]
             : _random.Next(LaneCount);
 
         passenger.LaneSlotIndex = -1;
-        passenger.LegacyMovementEnabled = false;
-        passenger.IsTrainPassenger = true;
-        passenger.IsDragging = false;
-        passenger.IsWalkingToLane = true;
-        passenger.CurrentPerspective = Perspective.PLATFORM;
 
-        Vector2 startPosition = GetLaneEntryPosition();
+        // Position where escalator comes up on the platform screen (below viewport for escalator look)
+        float escX = (EscalatorDevice != null && IsInstanceValid(EscalatorDevice)) 
+            ? EscalatorDevice.Position.X 
+            : 950.0f;
+        UpdateViewportBounds();
+        float escY = _viewportSize.Y - (SpawnOffset * 1.5f);
+        Vector2 startPosition = new Vector2(escX, _viewportSize.Y + 80.0f);
+
         float laneX = GetLaneSlotPosition(passenger.TargetLaneIndex, 0).X;
-        Vector2 targetPosition = new Vector2(laneX, startPosition.Y);
-
-        float distX = MathF.Abs(startPosition.X - laneX);
-        float distY = MathF.Abs(startPosition.Y - LaneTopOffset);
-        float totalDistance = distX + distY;
-        // Budget: passenger must arrive before the 3-second lock-in mark.
-        float timeRemaining = Math.Max(0.1f, RoundTimeRemaining - 3.0f - 0.2f);
-        passenger.MovementSpeed = Math.Max(240.0f, totalDistance / timeRemaining);
+        Vector2 targetPosition = new Vector2(laneX, escY);
 
         passenger.BeginLaneWalk(startPosition, targetPosition);
-
-        AddPassengerToWorld(passenger);
-        Passengers.Add(passenger);
     }
 
     private void UpdateWalkingPassengers()
@@ -699,19 +768,39 @@ public partial class SimulationManager : Node
         parent?.AddChild(passenger);
     }
 
-    private void ClearPassengers()
+    private void ClearPassengers(bool forceAll = false)
     {
         ResolveSceneReferences();
 
-        foreach (var passenger in Passengers)
+        if (forceAll)
         {
-            if (IsInstanceValid(passenger))
+            foreach (var passenger in Passengers)
             {
-                passenger.QueueFree();
+                if (IsInstanceValid(passenger))
+                {
+                    passenger.QueueFree();
+                }
+            }
+            Passengers.Clear();
+
+            if (_concourseScreen != null)
+            {
+                foreach (var child in _concourseScreen.GetChildren())
+                {
+                    if (child is GodotCommuterAgent agent)
+                    {
+                        agent.QueueFree();
+                    }
+                }
             }
         }
-        Passengers.Clear();
+        else
+        {
+            // Remove null/invalid instances from our active list
+            Passengers.RemoveAll(p => !IsInstanceValid(p));
+        }
 
+        // Clean up the train passengers who boarded and departed in both cases
         if (_trainScreen != null)
         {
             foreach (var child in _trainScreen.GetChildren())
@@ -723,7 +812,35 @@ public partial class SimulationManager : Node
             }
         }
 
+        // Reset TVM and Escalator states only on full reset
+        if (forceAll)
+        {
+            foreach (var tvm in TicketMachines)
+            {
+                if (IsInstanceValid(tvm))
+                {
+                    tvm.ResetMachine();
+                }
+            }
+            if (IsInstanceValid(EscalatorDevice))
+            {
+                EscalatorDevice.ResetEscalator();
+            }
+            if (IsInstanceValid(_wireMinigameNode))
+            {
+                _wireMinigameNode.Visible = false;
+            }
+        }
+
+        // Recalculate lane counts based on surviving passengers
         Array.Clear(_laneCounts, 0, _laneCounts.Length);
+        foreach (var passenger in Passengers)
+        {
+            if (passenger.LaneIndex >= 0 && passenger.LaneIndex < LaneCount)
+            {
+                _laneCounts[passenger.LaneIndex]++;
+            }
+        }
     }
 
     private void LayoutPassengers()
@@ -1053,6 +1170,83 @@ public partial class SimulationManager : Node
         _trainScreen ??= currentScene.FindChild("Train_Screen", true, false) as Node2D;
         _trainVehicle ??= currentScene.FindChild("TrainVehicle", true, false) as Sprite2D;
         CaptureTrainParkPosition();
+
+        // 1. Resolve/Spawn Wire Minigame
+        if (_wireMinigameNode == null)
+        {
+            _wireMinigameNode = currentScene.FindChild("WireMinigame", true, false) as WireMinigame;
+            if (_wireMinigameNode == null)
+            {
+                try
+                {
+                    var minigameScene = GD.Load<PackedScene>("res://scenes/WireMinigame.tscn");
+                    if (minigameScene != null)
+                    {
+                        _wireMinigameNode = minigameScene.Instantiate<WireMinigame>();
+                        _wireMinigameNode.Name = "WireMinigame";
+                        currentScene.AddChild(_wireMinigameNode);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    GD.PrintErr("Failed to load WireMinigame scene: " + ex.Message);
+                }
+            }
+        }
+
+        // 2. Resolve/Spawn Escalator
+        if (EscalatorDevice == null && _concourseScreen != null)
+        {
+            EscalatorDevice = currentScene.FindChild("Escalator", true, false) as GodotEscalator;
+            if (EscalatorDevice == null)
+            {
+                foreach (var child in _concourseScreen.GetChildren())
+                {
+                    if (child is GodotEscalator esc)
+                    {
+                        EscalatorDevice = esc;
+                        break;
+                    }
+                }
+            }
+            if (EscalatorDevice == null)
+            {
+                EscalatorDevice = new GodotEscalator { Name = "Escalator", Position = new Vector2(950.0f, 350.0f) };
+                _concourseScreen.AddChild(EscalatorDevice);
+            }
+        }
+
+        // 3. Resolve/Spawn TVMs
+        if (_concourseScreen != null)
+        {
+            var existingTvms = new List<GodotTVM>();
+            foreach (var child in _concourseScreen.GetChildren())
+            {
+                if (child is GodotTVM tvm)
+                {
+                    existingTvms.Add(tvm);
+                }
+            }
+
+            TicketMachines.Clear();
+            if (existingTvms.Count > 0)
+            {
+                TicketMachines.AddRange(existingTvms);
+            }
+            else
+            {
+                float[] xCoords = { 200.0f, 350.0f, 500.0f, 650.0f };
+                for (int i = 0; i < 4; i++)
+                {
+                    var tvm = new GodotTVM { 
+                        Name = $"TVM{i}", 
+                        Position = new Vector2(xCoords[i], 400.0f) 
+                    };
+                    _concourseScreen.AddChild(tvm);
+                    TicketMachines.Add(tvm);
+                }
+            }
+        }
     }
 
     private void CaptureTrainParkPosition()

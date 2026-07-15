@@ -751,11 +751,11 @@ offset_right = 792.0
 offset_bottom = 22.0
 
 [node name="BudgetLabel" type="Label" parent="HUD" unique_id=1348417448]
+visible = false
 offset_left = 181.0
 offset_top = 7.0
 offset_right = 221.0
 offset_bottom = 30.0
-visible = false
 
 [node name="TimerLabel" type="Label" parent="HUD" unique_id=1872475505]
 offset_left = 300.0
@@ -765,11 +765,11 @@ offset_bottom = 48.0
 horizontal_alignment = 1
 
 [node name="AnnouncementLabel" type="Label" parent="HUD" unique_id=193887011]
+visible = false
 offset_left = 23.0
 offset_top = 36.0
 offset_right = 580.0
 offset_bottom = 60.0
-visible = false
 
 [node name="Concourse_Screen" type="Node2D" parent="." unique_id=2006622733]
 
@@ -790,7 +790,7 @@ texture = ExtResource("6_uue8y")
 expand_mode = 1
 
 [node name="TrainVehicle" type="Sprite2D" parent="Platform_Screen/Platform_Tiles" unique_id=1354009529]
-position = Vector2(547.00006, 127)
+position = Vector2(564.00006, 132)
 scale = Vector2(0.845098, 0.9318628)
 texture = ExtResource("5_whfra")
 
