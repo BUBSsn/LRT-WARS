@@ -4,10 +4,30 @@ using Godot;
 public partial class HomeworkWorkspace : Node2D
 {
     private GodotCommuterAgent? _draggedPassenger;
+    private GuardHouseHighlightNode? _highlightNode;
+
+    /// <summary>
+    /// The screen-space rectangle that acts as the Guard House drop zone.
+    /// Adjust Position (X, Y) and Size (Z, W) in the Godot Inspector.
+    /// Default: X=900, Y=150, W=252, H=370
+    /// </summary>
+    [Export]
+    public Rect2 GuardHouseHitbox { get; set; } = new Rect2(900.0f, 150.0f, 252.0f, 370.0f);
 
     public override void _Ready()
     {
         CallDeferred(nameof(InitManagerEvents));
+        CallDeferred(nameof(SetupHighlightNode));
+    }
+
+    private void SetupHighlightNode()
+    {
+        var platformScreen = GetTree().CurrentScene?.FindChild("Platform_Screen", true, false) as Node2D;
+        if (platformScreen != null)
+        {
+            _highlightNode = new GuardHouseHighlightNode(this);
+            platformScreen.AddChild(_highlightNode);
+        }
     }
 
     private void InitManagerEvents()
@@ -39,8 +59,17 @@ public partial class HomeworkWorkspace : Node2D
         {
             if (sim.CurrentState != TrainRoundState.WaitingForTrain && sim.CurrentState != TrainRoundState.Arriving)
             {
-                sim.CommitDraggedPassenger(_draggedPassenger, GetGlobalMousePosition());
+                Vector2 dropPos = GetGlobalMousePosition();
+                if (sim.ActivePerspective == Perspective.PLATFORM && GuardHouseHitbox.HasPoint(dropPos))
+                {
+                    sim.EliminatePassenger(_draggedPassenger);
+                }
+                else
+                {
+                    sim.CommitDraggedPassenger(_draggedPassenger, dropPos);
+                }
                 _draggedPassenger = null;
+                _highlightNode?.QueueRedraw();
             }
             else
             {
@@ -108,12 +137,44 @@ public partial class HomeworkWorkspace : Node2D
                 if (_draggedPassenger == null && sim.TryStartDraggingPassenger(GetGlobalMousePosition(), out var passenger))
                 {
                     _draggedPassenger = passenger;
+                    _highlightNode?.QueueRedraw();
                 }
             }
             else if (_draggedPassenger != null)
             {
-                sim.CommitDraggedPassenger(_draggedPassenger, GetGlobalMousePosition());
+                Vector2 dropPos = GetGlobalMousePosition();
+                if (sim.ActivePerspective == Perspective.PLATFORM && GuardHouseHitbox.HasPoint(dropPos))
+                {
+                    sim.EliminatePassenger(_draggedPassenger);
+                }
+                else
+                {
+                    sim.CommitDraggedPassenger(_draggedPassenger, dropPos);
+                }
                 _draggedPassenger = null;
+                _highlightNode?.QueueRedraw();
+            }
+        }
+    }
+
+    private partial class GuardHouseHighlightNode : Node2D
+    {
+        private HomeworkWorkspace _parent;
+
+        public GuardHouseHighlightNode(HomeworkWorkspace parent)
+        {
+            _parent = parent;
+            ZIndex = 100; // Draw on top of background
+        }
+
+        public override void _Draw()
+        {
+            var sim = SimulationManager.Instance;
+            if (sim != null && _parent._draggedPassenger != null && sim.ActivePerspective == Perspective.PLATFORM)
+            {
+                Rect2 hitbox = _parent.GuardHouseHitbox;
+                DrawRect(hitbox, new Color(1.0f, 0.0f, 0.0f, 0.25f), true);
+                DrawRect(hitbox, new Color(1.0f, 0.0f, 0.0f, 0.8f), false, 4.0f);
             }
         }
     }

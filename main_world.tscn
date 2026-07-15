@@ -736,6 +736,7 @@ sources/0 = SubResource("TileSetAtlasSource_whfra")
 
 [node name="MainWorld" type="Node2D" unique_id=901706504]
 script = ExtResource("1_itk02")
+GuardHouseHitbox = Rect2(1050, 375, 100, 175)
 
 [node name="HUD" type="CanvasLayer" parent="." unique_id=2089216870 node_paths=PackedStringArray("RiotMeterBar", "ScoreLabel", "TimerLabel", "AnnouncementLabel")]
 script = ExtResource("2_uoqbt")

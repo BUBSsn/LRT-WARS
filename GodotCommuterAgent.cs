@@ -141,17 +141,19 @@ public partial class GodotCommuterAgent : Node2D
             return;
         }
 
-        if (IsDragging)
+        if (IsPickpocket)
+        {
+            float time = Godot.Time.GetTicksMsec() / 1000.0f;
+            float alpha = 0.3f + 0.7f * (MathF.Sin(time * MathF.PI * 4.0f) * 0.5f + 0.5f);
+            AgentSprite.Modulate = new Color(1.0f, 0.0f, 0.0f, alpha);
+        }
+        else if (IsDragging)
         {
             AgentSprite.Modulate = Colors.LightYellow;
         }
         else if (IsPriority)
         {
             AgentSprite.Modulate = Colors.HotPink;
-        }
-        else if (IsPickpocket)
-        {
-            AgentSprite.Modulate = Colors.Red;
         }
         else if (IsFrozen)
         {
