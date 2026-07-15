@@ -6,6 +6,11 @@
 [ext_resource type="Texture2D" uid="uid://buhks61rwk33g" path="res://train.png" id="4_3etub"]
 [ext_resource type="Texture2D" uid="uid://c18cytd6nap3d" path="res://Untitled design-no-bg.png" id="5_whfra"]
 [ext_resource type="Texture2D" uid="uid://wldstlhha4i3" path="res://platform_background.png" id="6_uue8y"]
+[ext_resource type="Script" uid="uid://ig54iyyiijew" path="res://MainMenu.cs" id="7_aac4l"]
+[ext_resource type="Texture2D" uid="uid://b2ctoips315qd" path="res://menu.png" id="8_7ktct"]
+[ext_resource type="Texture2D" uid="uid://no836e3y4g7d" path="res://Resume.png" id="9_ko8m6"]
+[ext_resource type="Texture2D" uid="uid://bmwecgteefpdm" path="res://NewGame.png" id="10_8i6ae"]
+[ext_resource type="Texture2D" uid="uid://css1lproc70ka" path="res://Quit.png" id="11_v7yd6"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_3etub"]
 texture = ExtResource("3_43o5b")
@@ -799,3 +804,55 @@ texture = ExtResource("5_whfra")
 
 [node name="Train_Tiles" type="TileMapLayer" parent="Train_Screen" unique_id=1207920174]
 tile_set = SubResource("TileSet_3etub")
+
+[node name="MainMenu" type="Control" parent="." unique_id=2081391412]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 24.0
+offset_top = 18.0
+offset_right = 64.0
+offset_bottom = 58.0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+script = ExtResource("7_aac4l")
+
+[node name="HamburgerButton" type="Button" parent="MainMenu" unique_id=939929769]
+layout_mode = 0
+offset_left = 14.0
+offset_top = 19.0
+offset_right = 73.0
+offset_bottom = 77.0
+icon = ExtResource("8_7ktct")
+expand_icon = true
+
+[node name="SubMenu" type="HBoxContainer" parent="MainMenu" unique_id=131338561]
+visible = false
+layout_mode = 1
+offset_left = 451.0
+offset_top = 334.0
+offset_right = 619.0
+offset_bottom = 384.0
+theme_override_constants/separation = 24
+
+[node name="ResumeButton" type="Button" parent="MainMenu/SubMenu" unique_id=1613393500]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+icon = ExtResource("9_ko8m6")
+expand_icon = true
+
+[node name="NewGameButton" type="Button" parent="MainMenu/SubMenu" unique_id=1693247996]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+icon = ExtResource("10_8i6ae")
+expand_icon = true
+
+[node name="QuitButton" type="Button" parent="MainMenu/SubMenu" unique_id=1185004699]
+custom_minimum_size = Vector2(40, 0)
+layout_mode = 2
+icon = ExtResource("11_v7yd6")
+expand_icon = true
+
+[connection signal="pressed" from="MainMenu/HamburgerButton" to="MainMenu" method="_on_hamburger_button_pressed"]
+[connection signal="pressed" from="MainMenu/SubMenu/ResumeButton" to="MainMenu" method="_on_resume_button_pressed"]
+[connection signal="pressed" from="MainMenu/SubMenu/NewGameButton" to="MainMenu" method="_on_new_game_button_pressed"]
+[connection signal="pressed" from="MainMenu/SubMenu/QuitButton" to="MainMenu" method="_on_quit_button_pressed"]
