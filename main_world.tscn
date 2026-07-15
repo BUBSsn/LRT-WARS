@@ -4,6 +4,7 @@
 [ext_resource type="Script" uid="uid://cu0nc1gr4jsl3" path="res://scripts/GameHUD.cs" id="2_uoqbt"]
 [ext_resource type="Texture2D" uid="uid://bbr4pqblm21n3" path="res://icon.svg" id="3_43o5b"]
 [ext_resource type="Texture2D" uid="uid://buhks61rwk33g" path="res://train.png" id="4_3etub"]
+[ext_resource type="Texture2D" uid="uid://dpy0jpteqgp51" path="res://scene2bg.png" id="5_aac4l"]
 [ext_resource type="Texture2D" uid="uid://c18cytd6nap3d" path="res://Untitled design-no-bg.png" id="5_whfra"]
 [ext_resource type="Texture2D" uid="uid://wldstlhha4i3" path="res://platform_background.png" id="6_uue8y"]
 
@@ -776,6 +777,14 @@ offset_bottom = 60.0
 
 [node name="Concourse_Tiles" type="TileMapLayer" parent="Concourse_Screen" unique_id=641342577]
 tile_set = SubResource("TileSet_agao6")
+
+[node name="concourse_UI_background" type="TextureRect" parent="Concourse_Screen" unique_id=837878353]
+offset_left = -1.0
+offset_top = 6.0
+offset_right = 1154.0
+offset_bottom = 679.0
+texture = ExtResource("5_aac4l")
+expand_mode = 1
 
 [node name="Platform_Screen" type="Node2D" parent="." unique_id=963783615]
 
