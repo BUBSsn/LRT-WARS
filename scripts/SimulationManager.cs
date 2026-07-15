@@ -48,7 +48,7 @@ public partial class SimulationManager : Node
 	[Export]
 	public float LaneTopOffset { get; set; } = 240.0f;
 	[Export]
-	public float AirconBreakChance { get; set; } = 1.0f; // 100% for testing. Set to 0.1f for 10% chance.
+	public float AirconBreakChance { get; set; } = 0.1f; // 10% chance per train arrival.
 	private bool _isAirconDialogOpen = false;
 	private bool _isFixingStandby = false;
 	private bool _isStandbyBufferActive = false;
