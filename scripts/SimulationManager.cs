@@ -463,14 +463,7 @@ public partial class SimulationManager : Node
 					OnFlashNotification?.Invoke("CAMERA: UNDER-STATION CONCOURSE 2", Colors.DarkGoldenrod);
 				}
 			}
-			else if (keyEvent.Keycode == Key.Key3 || keyEvent.Keycode == Key.Kp3)
-			{
-				if (ActivePerspective != Perspective.INSIDE_CARS)
-				{
-					ActivePerspective = Perspective.INSIDE_CARS;
-					OnFlashNotification?.Invoke("CAMERA: METRO CARRIAGE 3", Colors.DarkSlateBlue);
-				}
-			}
+
 		}
 	}
 
