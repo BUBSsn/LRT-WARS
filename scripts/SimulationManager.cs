@@ -1496,7 +1496,7 @@ public partial class SimulationManager : Node
 			}
 			if (EscalatorDevice == null)
 			{
-				EscalatorDevice = new GodotEscalator { Name = "Escalator", Position = new Vector2(950.0f, 350.0f) };
+				EscalatorDevice = new GodotEscalator { Name = "Escalator", Position = new Vector2(630.0f, 480.0f) };
 				_concourseScreen.AddChild(EscalatorDevice);
 			}
 		}
@@ -1520,12 +1520,12 @@ public partial class SimulationManager : Node
 			}
 			else
 			{
-				float[] xCoords = { 200.0f, 350.0f, 500.0f, 650.0f };
+				float[] xCoords = { 160.0f, 235.0f, 310.0f, 385.0f };
 				for (int i = 0; i < 4; i++)
 				{
 					var tvm = new GodotTVM { 
 						Name = $"TVM{i}", 
-						Position = new Vector2(xCoords[i], 400.0f) 
+						Position = new Vector2(xCoords[i], 320.0f) 
 					};
 					_concourseScreen.AddChild(tvm);
 					TicketMachines.Add(tvm);

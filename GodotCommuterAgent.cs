@@ -38,6 +38,10 @@ public partial class GodotCommuterAgent : Node2D
     public float ConcourseTimer { get; set; } = 0.0f;
     public GodotTVM TargetTVM { get; set; }
     
+    private int _concoursePathIndex = 0;
+    private Vector2[] _concoursePath = null;
+    private float _gateX;
+    
     private bool _isPriority = false;
     public bool IsPriority 
     { 
@@ -359,7 +363,7 @@ public partial class GodotCommuterAgent : Node2D
                 }
             }
 
-            Vector2 target = TargetTVM.Position;
+            Vector2 target = TargetTVM.Position + new Vector2(0.0f, -30.0f);
             Vector2 dir = target - Position;
             float dist = dir.Length();
             if (dist > 10.0f)
@@ -398,6 +402,17 @@ public partial class GodotCommuterAgent : Node2D
                 if (TargetTVM.TryBuyTicket())
                 {
                     CurrentConcourseState = ConcourseState.WalkingToEscalator;
+                    _concoursePathIndex = 0;
+
+                    float gateX = 585.0f;
+                    int randGate = new Random().Next(0, 3);
+                    if (randGate == 1) gateX = 640.0f;
+                    else if (randGate == 2) gateX = 695.0f;
+
+                    _concoursePath = new Vector2[] {
+                        new Vector2(gateX, 600.0f),
+                        new Vector2(gateX, 480.0f)
+                    };
                 }
                 else
                 {
@@ -415,7 +430,21 @@ public partial class GodotCommuterAgent : Node2D
             var esc = sim.EscalatorDevice;
             if (esc == null || !IsInstanceValid(esc)) return;
 
-            Vector2 target = esc.Position + new Vector2(0.0f, 150.0f);
+            if (_concoursePath == null || _concoursePathIndex >= _concoursePath.Length)
+            {
+                _concoursePathIndex = 0;
+                float gateX = 585.0f;
+                int randGate = new Random().Next(0, 3);
+                if (randGate == 1) gateX = 640.0f;
+                else if (randGate == 2) gateX = 695.0f;
+
+                _concoursePath = new Vector2[] {
+                    new Vector2(gateX, 580.0f),
+                    new Vector2(gateX, 480.0f)
+                };
+            }
+
+            Vector2 target = _concoursePath[_concoursePathIndex];
             Vector2 dir = target - Position;
             float dist = dir.Length();
             if (dist > 10.0f)
@@ -426,7 +455,12 @@ public partial class GodotCommuterAgent : Node2D
             }
             else
             {
-                CurrentConcourseState = ConcourseState.RidingEscalator;
+                _concoursePathIndex++;
+                if (_concoursePathIndex >= _concoursePath.Length)
+                {
+                    CurrentConcourseState = ConcourseState.RidingEscalator;
+                    _gateX = target.X;
+                }
             }
         }
         else if (CurrentConcourseState == ConcourseState.RidingEscalator)
@@ -439,7 +473,7 @@ public partial class GodotCommuterAgent : Node2D
                 return;
             }
 
-            Vector2 target = esc.Position + new Vector2(0.0f, -150.0f);
+            Vector2 target = new Vector2(_gateX == 0.0f ? 640.0f : _gateX, -50.0f);
             Vector2 dir = target - Position;
             float dist = dir.Length();
             if (dist > 10.0f)
