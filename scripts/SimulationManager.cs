@@ -146,6 +146,7 @@ public partial class SimulationManager : Node
 
 	private AudioStreamPlayer _crowdNoiseAudio;
 	private AudioStreamPlayer _stationBgAudio;
+	private AudioStreamPlayer _dropSoundAudio;
 
 	public override void _Ready()
 	{
@@ -155,6 +156,10 @@ public partial class SimulationManager : Node
 		_trainBrakeAudio = new AudioStreamPlayer();
 		_trainBrakeAudio.Stream = GD.Load<AudioStream>("res://train-breaks.mp3");
 		AddChild(_trainBrakeAudio);
+
+		_dropSoundAudio = new AudioStreamPlayer();
+		_dropSoundAudio.Stream = GD.Load<AudioStream>("res://drop-sound.ogg");
+		AddChild(_dropSoundAudio);
 
 		_crowdNoiseAudio = new AudioStreamPlayer();
 		var crowdStream = GD.Load<AudioStream>("res://crowd-noise.mp3");
@@ -1480,6 +1485,8 @@ public partial class SimulationManager : Node
 		int targetLane = GetLaneFromScreenX(mousePosition.X);
 		int targetSlot = GetLaneInsertIndex(targetLane, mousePosition.Y);
 
+		_dropSoundAudio?.Play();
+
 		passenger.LaneIndex = targetLane;
 		passenger.LaneSlotIndex = targetSlot;
 		passenger.DragSourceLaneIndex = -1;
@@ -1705,6 +1712,8 @@ public partial class SimulationManager : Node
 			return;
 		}
 
+		_dropSoundAudio?.Play();
+		
 		if (passenger.IsPickpocket)
 		{
 			AdjustRage(-10.0f);
