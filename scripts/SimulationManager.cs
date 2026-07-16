@@ -29,6 +29,7 @@ public partial class SimulationManager : Node
 	private int _middayWavesSpawned = 0;
 	private float _normalSpawnRate = 8f; // base number of commuters
 	private bool _victoryTriggered = false;
+	private bool _gameOverTriggered = false;
 
 	public string CurrentGameTime => _currentGameTime;
 
@@ -187,6 +188,14 @@ public partial class SimulationManager : Node
 			}
 		}
 
+		// Game Over: rage score has dropped to zero
+		if (_currentRageScore <= 0.0f && !_gameOverTriggered && _hasCompletedAnyRound)
+		{
+			_gameOverTriggered = true;
+			TriggerGameOver();
+			return;
+		}
+
 		if (_isAirconDialogOpen)
 		{
 			return;
@@ -330,7 +339,7 @@ public partial class SimulationManager : Node
 										sprite.Frame = 0;
 									}
 
-									frontPassenger.CallDeferred("reparent", _trainScreen, false);
+									frontPassenger.CallDeferred("reparent", _trainScreen, true);
 								}
 								else
 								{
@@ -403,6 +412,16 @@ public partial class SimulationManager : Node
 		}
 	}
 
+	public void StopGameAndReturnToMenu()
+	{
+		IsGameActive = false;
+		ClearPassengers(true);
+		if (_trainVehicle != null)
+		{
+			_trainVehicle.Visible = false;
+		}
+	}
+
 	public void ResetSimulation()
 	{
 		ClearPassengers(true);
@@ -412,6 +431,7 @@ public partial class SimulationManager : Node
 		_rushHourWavesSpawned = 0;
 		_middayWavesSpawned = 0;
 		_victoryTriggered = false;
+		_gameOverTriggered = false;
 		CurrentState = TrainRoundState.WaitingForTrain;
 		CurrentRoundDuration = BaseRoundDuration;
 		RoundTimeRemaining = BaseRoundDuration;
@@ -681,8 +701,24 @@ public partial class SimulationManager : Node
 
 	private void TriggerVictory()
 	{
+		GetTree().Paused = true;
 		ClearPassengers(true);
 		var dialog = new VictoryDialog();
+		GetTree().CurrentScene.AddChild(dialog);
+	}
+
+	public void SetTimeTo2PM()
+	{
+		_currentGameTime = "02:00 PM";
+		_currentWaveCount = 8;
+		OnFlashNotification?.Invoke("🕒 Time skipped to 02:00 PM! Clear the platform to win at 02:30 PM.", Colors.YellowGreen);
+	}
+
+	private void TriggerGameOver()
+	{
+		GetTree().Paused = true;
+		ClearPassengers(true);
+		var dialog = new GameOverDialog();
 		GetTree().CurrentScene.AddChild(dialog);
 	}
 
@@ -955,7 +991,7 @@ public partial class SimulationManager : Node
 
 		if (_concourseScreen != null && _platformScreen != null)
 		{
-			passenger.CallDeferred("reparent", _platformScreen, false);
+			passenger.CallDeferred("reparent", _platformScreen, true);
 		}
 
 		passenger.CurrentPerspective = Perspective.PLATFORM;

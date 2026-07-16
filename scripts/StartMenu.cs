@@ -44,6 +44,7 @@ public partial class StartMenu : Control
 		// Set up audio player for button click sounds (VFX)
 		_clickAudioPlayer = new AudioStreamPlayer();
 		_clickAudioPlayer.Name = "ClickAudioPlayer";
+		_clickAudioPlayer.VolumeDb = Mathf.LinearToDb(0.5f); // Default to 50% volume
 		if (ResourceLoader.Exists("res://click.mp3"))
 		{
 			var stream = GD.Load<AudioStream>("res://click.mp3");
@@ -85,7 +86,7 @@ public partial class StartMenu : Control
 		// Start playing music immediately on load
 		if (_musicAudioPlayer.Stream != null)
 		{
-			_musicAudioPlayer.VolumeDb = 0.0f; // 100% volume
+			_musicAudioPlayer.VolumeDb = Mathf.LinearToDb(0.5f); // Default to 50% volume
 			_musicAudioPlayer.Play();
 			GD.Print("StartMenu: Playing background music.");
 		}
@@ -121,6 +122,75 @@ public partial class StartMenu : Control
 
 		// Setup the sliders programmatically
 		SetupSliders();
+
+		// Create a text-based Quit Button in the Start Menu
+		Button quitButton = new Button();
+		quitButton.Name = "StartMenuQuitButton";
+		quitButton.Text = "QUIT";
+		quitButton.Size = new Vector2(140f, 36f);
+		quitButton.FocusMode = Control.FocusModeEnum.None;
+
+		// Center the button horizontally, place it below the How To Play button (which ends at offset_bottom = 170)
+		quitButton.SetAnchorsPreset(Control.LayoutPreset.Center);
+		quitButton.OffsetLeft = -70.0f;
+		quitButton.OffsetRight = 70.0f;
+		quitButton.OffsetTop = 190.0f;
+		quitButton.OffsetBottom = 226.0f;
+
+		// Premium styling matching the theme
+		StyleBoxFlat normalStyle = new StyleBoxFlat();
+		normalStyle.BgColor = new Color(0.12f, 0.12f, 0.16f, 0.85f);
+		normalStyle.BorderColor = new Color(1.0f, 0.85f, 0.2f); // Gold border matching theme
+		normalStyle.BorderWidthLeft = 2;
+		normalStyle.BorderWidthRight = 2;
+		normalStyle.BorderWidthTop = 2;
+		normalStyle.BorderWidthBottom = 2;
+		normalStyle.CornerRadiusTopLeft = 4;
+		normalStyle.CornerRadiusTopRight = 4;
+		normalStyle.CornerRadiusBottomLeft = 4;
+		normalStyle.CornerRadiusBottomRight = 4;
+
+		StyleBoxFlat hoverStyle = (StyleBoxFlat)normalStyle.Duplicate();
+		hoverStyle.BgColor = new Color(0.2f, 0.2f, 0.26f, 0.95f);
+		hoverStyle.BorderColor = new Color(1.0f, 0.9f, 0.4f);
+
+		StyleBoxFlat pressedStyle = (StyleBoxFlat)normalStyle.Duplicate();
+		pressedStyle.BgColor = new Color(0.08f, 0.08f, 0.1f, 0.9f);
+		pressedStyle.BorderColor = new Color(0.8f, 0.65f, 0.1f);
+
+		quitButton.AddThemeStyleboxOverride("normal", normalStyle);
+		quitButton.AddThemeStyleboxOverride("hover", hoverStyle);
+		quitButton.AddThemeStyleboxOverride("pressed", pressedStyle);
+		quitButton.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+
+		quitButton.AddThemeColorOverride("font_color", new Color(1.0f, 0.85f, 0.2f));
+		quitButton.AddThemeColorOverride("font_hover_color", new Color(1.0f, 0.9f, 0.4f));
+		quitButton.AddThemeColorOverride("font_pressed_color", new Color(0.8f, 0.65f, 0.1f));
+		quitButton.AddThemeFontSizeOverride("font_size", 16);
+
+		// Dynamic pivot offset for scaling animation
+		quitButton.PivotOffset = quitButton.Size / 2f;
+		quitButton.Resized += () => {
+			quitButton.PivotOffset = quitButton.Size / 2f;
+		};
+
+		quitButton.Pressed += () => {
+			PlayClickSound();
+			
+			// Click animation
+			Color targetColor = Colors.White;
+			Color clickColor = targetColor * 0.7f;
+			var tween = CreateTween();
+			tween.TweenProperty(quitButton, "scale", new Vector2(0.92f, 0.92f), 0.05f);
+			tween.Parallel().TweenProperty(quitButton, "self_modulate", clickColor, 0.05f);
+			tween.TweenProperty(quitButton, "scale", Vector2.One, 0.05f);
+			tween.Parallel().TweenProperty(quitButton, "self_modulate", targetColor, 0.05f);
+
+			// Quit execution
+			GetTree().Quit();
+		};
+
+		AddChild(quitButton);
 
 		// Initially hide the main game HUD if available
 		var hud = GetTree().CurrentScene?.GetNodeOrNull<CanvasLayer>("HUD");
@@ -181,10 +251,10 @@ public partial class StartMenu : Control
 				_vfxSlider.Visible = false;
 				_vfxSlider.MaxValue = 1.0;
 				_vfxSlider.Step = 0.01;
-				_vfxSlider.Value = 1.0; // VFX defaults to max
 
 				ApplyCustomSliderStyles(_vfxSlider, scaledThumb, scaledTrack);
 				_vfxSlider.ValueChanged += OnVfxSliderValueChanged;
+				_vfxSlider.Value = 0.5; // Default VFX volume (50%)
 
 				vBox.AddChild(_vfxSlider);
 			}
@@ -217,10 +287,10 @@ public partial class StartMenu : Control
 				_musicSlider.Visible = false;
 				_musicSlider.MaxValue = 1.0;
 				_musicSlider.Step = 0.01;
-				_musicSlider.Value = 1.0; // Default background music volume (100%)
 
 				ApplyCustomSliderStyles(_musicSlider, scaledThumb, scaledTrack);
 				_musicSlider.ValueChanged += OnMusicSliderValueChanged;
+				_musicSlider.Value = 0.5; // Default background music volume (50%)
 
 				vBox.AddChild(_musicSlider);
 			}

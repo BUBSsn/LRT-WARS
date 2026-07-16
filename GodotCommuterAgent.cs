@@ -90,7 +90,10 @@ public partial class GodotCommuterAgent : Node2D
     { 
         "res://walkingside3.png", 
         "res://Walkingside2.png", 
-        "res://commuter_2_right.png" 
+        "res://commuter_2_right.png",
+        "res://commuter_3_walking.png",
+        "res://commuter_4_walking.png",
+        "res://commuter_5_walking.png"
     };
 
     [Export]
@@ -98,17 +101,40 @@ public partial class GodotCommuterAgent : Node2D
     { 
         "res://walk_up.png", 
         "res://walk_up.png", 
-        "res://commuter_2_forward.png" 
+        "res://commuter_2_forward.png",
+        "res://commuter_3_forward.png",
+        "res://commuter_4_forward.png",
+        "res://commuter_5_forward.png"
     };
 
     private Texture2D _assignedSideTexture;
     private Texture2D _assignedUpTexture;
     private bool _skinDefaultFacingLeft = true;
+    private Vector2 _referenceSpriteScale;
+    private Vector2 _referenceFrameSize;
 
     public override void _Ready()
     {
         Scale = AgentCustomScale;
         
+        // Capture the reference sprite scale and frame dimensions from the
+        // scene defaults (walk_up.png at the scale set in the .tscn editor).
+        // All other skin textures will be normalized to match this visual size.
+        var sprite = GetNodeOrNull<Sprite2D>("Sprite2D");
+        if (sprite != null)
+        {
+            _referenceSpriteScale = sprite.Scale;
+            if (sprite.Texture != null)
+            {
+                int hf = Math.Max(1, sprite.Hframes);
+                int vf = Math.Max(1, sprite.Vframes);
+                _referenceFrameSize = new Vector2(
+                    sprite.Texture.GetWidth() / (float)hf,
+                    sprite.Texture.GetHeight() / (float)vf
+                );
+            }
+        }
+
         int skinCount = Math.Min(SideSkins?.Length ?? 0, UpSkins?.Length ?? 0);
         if (skinCount > 0)
         {
@@ -129,13 +155,39 @@ public partial class GodotCommuterAgent : Node2D
             }
         }
 
-        var sprite = GetNodeOrNull<Sprite2D>("Sprite2D");
         if (sprite != null && _assignedSideTexture != null)
         {
             sprite.Texture = _assignedSideTexture;
+            NormalizeSpriteScale(sprite);
         }
 
         UpdateVisuals();
+    }
+
+    /// <summary>
+    /// Adjusts the Sprite2D scale so the current texture's frame appears
+    /// the same visual height as the reference texture (walk_up.png).
+    /// Uses uniform scaling to preserve the aspect ratio of each skin.
+    /// </summary>
+    private void NormalizeSpriteScale(Sprite2D sprite)
+    {
+        if (sprite?.Texture == null) return;
+        if (_referenceFrameSize.X <= 0 || _referenceFrameSize.Y <= 0) return;
+
+        int hf = Math.Max(1, sprite.Hframes);
+        int vf = Math.Max(1, sprite.Vframes);
+        float frameW = sprite.Texture.GetWidth() / (float)hf;
+        float frameH = sprite.Texture.GetHeight() / (float)vf;
+
+        if (frameW <= 0 || frameH <= 0) return;
+
+        // Use a single uniform scale factor based on height so the
+        // aspect ratio of each skin is preserved (no stretching/squishing).
+        float uniformRatio = _referenceFrameSize.Y / frameH;
+        sprite.Scale = new Vector2(
+            _referenceSpriteScale.X * uniformRatio,
+            _referenceSpriteScale.Y * uniformRatio
+        );
     }
 
     private void UpdateVisuals()
@@ -183,6 +235,10 @@ public partial class GodotCommuterAgent : Node2D
 
     public override void _Process(double delta)
     {
+        // Enforce consistent scale every frame to prevent size glitches
+        // when reparenting between concourse, platform, and train screens.
+        Scale = AgentCustomScale;
+
         if (_rageSpikeTimer > 0.0f)
         {
             _rageSpikeTimer = Math.Max(0.0f, _rageSpikeTimer - (float)delta);
@@ -214,7 +270,6 @@ public partial class GodotCommuterAgent : Node2D
             {
                 Vector2 oldPos = Position;
                 UpdateLaneWalk((float)delta);
-                isMoving = IsWalkingToLane;
                 velocity = Position - oldPos;
             }
             else if (LegacyMovementEnabled && !IsFrozen && !IsDragging)
@@ -227,10 +282,20 @@ public partial class GodotCommuterAgent : Node2D
                     Vector2 norm = dir.Normalized();
                     Vector2 oldPos = Position;
                     Position += norm * MovementSpeed * TargetMultiplier * (float)delta;
-                    isMoving = true;
                     velocity = Position - oldPos;
                 }
             }
+        }
+
+        // Determine movement from actual velocity, not state flags.
+        // This prevents the walk animation from looping when the agent
+        // has arrived at its target but IsWalkingToLane hasn't cleared yet.
+        isMoving = velocity.Length() > 0.5f;
+
+        // Force idle when dragged or frozen regardless of velocity.
+        if (IsDragging || IsFrozen)
+        {
+            isMoving = false;
         }
 
         var anim = GetNodeOrNull<AnimationPlayer>("AnimationPlayer");
@@ -246,6 +311,7 @@ public partial class GodotCommuterAgent : Node2D
                     if (sprite != null && _assignedUpTexture != null && sprite.Texture != _assignedUpTexture)
                     {
                         sprite.Texture = _assignedUpTexture;
+                        NormalizeSpriteScale(sprite);
                     }
                 }
                 else
@@ -254,6 +320,7 @@ public partial class GodotCommuterAgent : Node2D
                     if (sprite != null && _assignedSideTexture != null && sprite.Texture != _assignedSideTexture)
                     {
                         sprite.Texture = _assignedSideTexture;
+                        NormalizeSpriteScale(sprite);
                     }
                 }
 
@@ -275,9 +342,21 @@ public partial class GodotCommuterAgent : Node2D
                 if (sprite != null)
                 {
                     sprite.Frame = 0;
-                    if (_assignedSideTexture != null && sprite.Texture != _assignedSideTexture)
+                    if (CurrentPerspective == Perspective.PLATFORM)
                     {
-                        sprite.Texture = _assignedSideTexture;
+                        if (_assignedUpTexture != null && sprite.Texture != _assignedUpTexture)
+                        {
+                            sprite.Texture = _assignedUpTexture;
+                            NormalizeSpriteScale(sprite);
+                        }
+                    }
+                    else
+                    {
+                        if (_assignedSideTexture != null && sprite.Texture != _assignedSideTexture)
+                        {
+                            sprite.Texture = _assignedSideTexture;
+                            NormalizeSpriteScale(sprite);
+                        }
                     }
                 }
             }

@@ -1,7 +1,7 @@
 using Godot;
 using System;
 
-public partial class VictoryDialog : CanvasLayer
+public partial class GameOverDialog : CanvasLayer
 {
 	private Panel _backdrop;
 	private Panel _card;
@@ -19,25 +19,25 @@ public partial class VictoryDialog : CanvasLayer
 
 	private void BuildUI()
 	{
-		// Backdrop
+		// Backdrop – full screen dark overlay
 		_backdrop = new Panel();
 		_backdrop.SetAnchorsPreset(Control.LayoutPreset.FullRect);
 		_backdrop.MouseFilter = Control.MouseFilterEnum.Stop;
 
 		var backdropStyle = new StyleBoxFlat();
-		backdropStyle.BgColor = new Color(0.0f, 0.0f, 0.0f, 0.75f);
+		backdropStyle.BgColor = new Color(0.15f, 0.0f, 0.0f, 0.80f);
 		_backdrop.AddThemeStyleboxOverride("panel", backdropStyle);
 		AddChild(_backdrop);
 
-		// Card
+		// Card – centered dialog box with red theme
 		_card = new Panel();
 		_card.SetAnchorsPreset(Control.LayoutPreset.Center);
 		_card.CustomMinimumSize = new Vector2(520, 280);
 		_card.Position = new Vector2(-260, -140);
 
 		var cardStyle = new StyleBoxFlat();
-		cardStyle.BgColor = new Color(0.08f, 0.12f, 0.10f, 0.98f);
-		cardStyle.BorderColor = new Color(0.18f, 0.75f, 0.25f, 1.0f);
+		cardStyle.BgColor = new Color(0.12f, 0.06f, 0.06f, 0.98f);
+		cardStyle.BorderColor = new Color(0.85f, 0.15f, 0.10f, 1.0f);
 		cardStyle.BorderWidthBottom = 3;
 		cardStyle.BorderWidthLeft = 3;
 		cardStyle.BorderWidthRight = 3;
@@ -49,7 +49,7 @@ public partial class VictoryDialog : CanvasLayer
 		_card.AddThemeStyleboxOverride("panel", cardStyle);
 		_backdrop.AddChild(_card);
 
-		// Layout
+		// Layout container
 		var vbox = new VBoxContainer();
 		vbox.SetAnchorsPreset(Control.LayoutPreset.FullRect);
 		vbox.AddThemeConstantOverride("separation", 16);
@@ -65,20 +65,20 @@ public partial class VictoryDialog : CanvasLayer
 
 		// Title
 		_titleLabel = new Label();
-		_titleLabel.Text = "🎉 SHIFT COMPLETE! 🎉";
+		_titleLabel.Text = "💀 GAME OVER 💀";
 		_titleLabel.HorizontalAlignment = HorizontalAlignment.Center;
-		_titleLabel.AddThemeColorOverride("font_color", new Color(0.2f, 0.9f, 0.3f));
-		_titleLabel.AddThemeFontSizeOverride("font_size", 24);
+		_titleLabel.AddThemeColorOverride("font_color", new Color(1.0f, 0.2f, 0.15f));
+		_titleLabel.AddThemeFontSizeOverride("font_size", 26);
 		vbox.AddChild(_titleLabel);
 
 		var sep = new HSeparator();
 		vbox.AddChild(sep);
 
-		// Body
+		// Body text
 		_bodyLabel = new Label();
-		_bodyLabel.Text = "Shift Complete! You survived LRT Rush Hour!\n\nAll commuters have been safely managed. Well done, station master!";
+		_bodyLabel.Text = "The commuters have had enough!\nRage has reached maximum — the station is in chaos.\n\nYour shift is over, station master.";
 		_bodyLabel.AutowrapMode = TextServer.AutowrapMode.WordSmart;
-		_bodyLabel.AddThemeColorOverride("font_color", new Color(0.9f, 0.9f, 0.9f));
+		_bodyLabel.AddThemeColorOverride("font_color", new Color(0.9f, 0.75f, 0.7f));
 		_bodyLabel.AddThemeFontSizeOverride("font_size", 15);
 		_bodyLabel.HorizontalAlignment = HorizontalAlignment.Center;
 		vbox.AddChild(_bodyLabel);

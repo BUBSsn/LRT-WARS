@@ -18,6 +18,7 @@ public partial class GameHUD : CanvasLayer
 	public Label ClockLabel { get; set; }
 
 	private StyleBoxFlat _rageFillStyle;
+	private PauseMenu _pauseMenu;
 
 	public override void _Ready()
 	{
@@ -35,6 +36,93 @@ public partial class GameHUD : CanvasLayer
 			// Hide the percentage text that Godot shows by default.
 			RiotMeterBar.ShowPercentage = false;
 		}
+
+		// Instantiate and add the PauseMenu dynamically to the current scene
+		_pauseMenu = new PauseMenu();
+		_pauseMenu.Name = "PauseMenu";
+		GetTree().CurrentScene.CallDeferred("add_child", _pauseMenu);
+
+		// Create a beautiful in-game menu button in the top-left area
+		Button menuButton = new Button();
+		menuButton.Name = "InGameMenuButton";
+		menuButton.Text = "MENU";
+		menuButton.Position = new Vector2(16.0f, 28.0f);
+		menuButton.Size = new Vector2(90.0f, 32.0f);
+		menuButton.FocusMode = Control.FocusModeEnum.None;
+
+		// Create a beautiful premium theme stylebox for normal state
+		StyleBoxFlat normalStyle = new StyleBoxFlat();
+		normalStyle.BgColor = new Color(0.12f, 0.12f, 0.16f, 0.85f);
+		normalStyle.BorderColor = new Color(1.0f, 0.85f, 0.2f); // Gold border matching ClockLabel
+		normalStyle.BorderWidthLeft = 2;
+		normalStyle.BorderWidthRight = 2;
+		normalStyle.BorderWidthTop = 2;
+		normalStyle.BorderWidthBottom = 2;
+		normalStyle.CornerRadiusTopLeft = 4;
+		normalStyle.CornerRadiusTopRight = 4;
+		normalStyle.CornerRadiusBottomLeft = 4;
+		normalStyle.CornerRadiusBottomRight = 4;
+
+		// Stylebox for hover state
+		StyleBoxFlat hoverStyle = (StyleBoxFlat)normalStyle.Duplicate();
+		hoverStyle.BgColor = new Color(0.2f, 0.2f, 0.26f, 0.95f);
+		hoverStyle.BorderColor = new Color(1.0f, 0.9f, 0.4f); // Brighter gold
+
+		// Stylebox for pressed state
+		StyleBoxFlat pressedStyle = (StyleBoxFlat)normalStyle.Duplicate();
+		pressedStyle.BgColor = new Color(0.08f, 0.08f, 0.1f, 0.9f);
+		pressedStyle.BorderColor = new Color(0.8f, 0.65f, 0.1f); // Darker gold
+
+		menuButton.AddThemeStyleboxOverride("normal", normalStyle);
+		menuButton.AddThemeStyleboxOverride("hover", hoverStyle);
+		menuButton.AddThemeStyleboxOverride("pressed", pressedStyle);
+		menuButton.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+
+		menuButton.AddThemeColorOverride("font_color", new Color(1.0f, 0.85f, 0.2f));
+		menuButton.AddThemeColorOverride("font_hover_color", new Color(1.0f, 0.9f, 0.4f));
+		menuButton.AddThemeColorOverride("font_pressed_color", new Color(0.8f, 0.65f, 0.1f));
+		menuButton.AddThemeFontSizeOverride("font_size", 14);
+
+		menuButton.Pressed += () => {
+			if (_pauseMenu != null)
+			{
+				_pauseMenu.TogglePauseState();
+			}
+		};
+
+		AddChild(menuButton);
+
+		// Create a temporary test win button next to it
+		Button testWinButton = new Button();
+		testWinButton.Name = "TestWinButton";
+		testWinButton.Text = "TEST WIN";
+		testWinButton.Position = new Vector2(120.0f, 28.0f);
+		testWinButton.Size = new Vector2(90.0f, 32.0f);
+		testWinButton.FocusMode = Control.FocusModeEnum.None;
+
+		StyleBoxFlat testStyle = (StyleBoxFlat)normalStyle.Duplicate();
+		testStyle.BgColor = new Color(0.12f, 0.22f, 0.12f, 0.85f); // Greenish tint
+		testStyle.BorderColor = new Color(0.2f, 0.8f, 0.2f); // Green border
+
+		testWinButton.AddThemeStyleboxOverride("normal", testStyle);
+		testWinButton.AddThemeStyleboxOverride("hover", hoverStyle);
+		testWinButton.AddThemeStyleboxOverride("pressed", pressedStyle);
+		testWinButton.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+
+		testWinButton.AddThemeColorOverride("font_color", new Color(0.2f, 0.8f, 0.2f));
+		testWinButton.AddThemeColorOverride("font_hover_color", new Color(0.3f, 0.9f, 0.3f));
+		testWinButton.AddThemeColorOverride("font_pressed_color", new Color(0.1f, 0.6f, 0.1f));
+		testWinButton.AddThemeFontSizeOverride("font_size", 14);
+
+		testWinButton.Pressed += () => {
+			var simMgr = SimulationManager.Instance;
+			if (simMgr != null)
+			{
+				simMgr.SetTimeTo2PM();
+			}
+		};
+
+		AddChild(testWinButton);
 	}
 
 	public override void _Process(double delta)
