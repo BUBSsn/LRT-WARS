@@ -5,6 +5,7 @@
 [ext_resource type="Texture2D" uid="uid://bbr4pqblm21n3" path="res://icon.svg" id="3_43o5b"]
 [ext_resource type="Texture2D" uid="uid://buhks61rwk33g" path="res://train.png" id="4_3etub"]
 [ext_resource type="Texture2D" uid="uid://dprd1p401eb1d" path="res://SCR-20260714-nsct.jpeg" id="5_8i6ae"]
+[ext_resource type="Texture2D" uid="uid://cxjynatdauowj" path="res://screen 2.jpg" id="5_aac4l"]
 [ext_resource type="Texture2D" uid="uid://c18cytd6nap3d" path="res://Untitled design-no-bg.png" id="5_whfra"]
 [ext_resource type="Texture2D" uid="uid://r3u745wilpjl" path="res://Main menu.png" id="7_menu"]
 [ext_resource type="Texture2D" uid="uid://bt8livds7nld5" path="res://Play.png" id="8_play"]
@@ -782,6 +783,14 @@ offset_bottom = 60.0
 
 [node name="Concourse_Tiles" type="TileMapLayer" parent="Concourse_Screen" unique_id=641342577]
 tile_set = SubResource("TileSet_agao6")
+
+[node name="concourse_UI_background" type="TextureRect" parent="Concourse_Screen" unique_id=837878353]
+offset_left = -1.0
+offset_top = 6.0
+offset_right = 1189.0
+offset_bottom = 679.0
+texture = ExtResource("5_aac4l")
+expand_mode = 1
 
 [node name="Platform_Screen" type="Node2D" parent="." unique_id=963783615]
 

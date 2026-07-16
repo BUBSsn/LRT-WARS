@@ -57,6 +57,11 @@ public partial class GodotTVM : Node2D
         _isBroken = false;
         SelfModulate = Colors.White;
         Modulate = Colors.White;
+        var bg = GetNodeOrNull<ColorRect>("Background");
+        if (bg != null)
+        {
+            bg.Color = new Color(0.0f, 0.0f, 0.0f, 0.0f); // transparent
+        }
         UpdateStatusLabel();
     }
 
@@ -72,6 +77,11 @@ public partial class GodotTVM : Node2D
         {
             _isBroken = true;
             SelfModulate = Colors.Red;
+            var bg = GetNodeOrNull<ColorRect>("Background");
+            if (bg != null)
+            {
+                bg.Color = new Color(1.0f, 0.0f, 0.0f, 0.4f); // semi-transparent red overlay
+            }
         }
         UpdateStatusLabel();
         return true;

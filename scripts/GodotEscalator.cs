@@ -39,8 +39,8 @@ public partial class GodotEscalator : Node2D
         {
             statusLabel = new Label {
                 Name = "StatusLabel",
-                Position = new Vector2(10.0f, 10.0f),
-                Text = "Escalator OK"
+                Position = new Vector2(-60.0f, -280.0f),
+                Text = "Fare Gates OK"
             };
             AddChild(statusLabel);
         }
@@ -88,6 +88,11 @@ public partial class GodotEscalator : Node2D
         _speedMultiplier = 1.0f;
         SelfModulate = Colors.White;
         Modulate = Colors.White;
+        var bg = GetNodeOrNull<ColorRect>("Background");
+        if (bg != null)
+        {
+            bg.Color = new Color(0.0f, 0.0f, 0.0f, 0.0f); // transparent
+        }
         UpdateStatusDisplay();
     }
 
@@ -122,6 +127,11 @@ public partial class GodotEscalator : Node2D
         {
             _speedMultiplier = 0.0f;
             SelfModulate = Colors.Red;
+            var bg = GetNodeOrNull<ColorRect>("Background");
+            if (bg != null)
+            {
+                bg.Color = new Color(1.0f, 0.0f, 0.0f, 0.4f); // semi-transparent red overlay
+            }
 
             var sim = SimulationManager.Instance;
             if (sim != null)
@@ -148,6 +158,11 @@ public partial class GodotEscalator : Node2D
             _speedMultiplier = Math.Clamp(1.0f - (ridersCount - 20) * 0.05f, 0.2f, 1.0f);
             _overloadTimer += (float)delta;
             SelfModulate = Colors.Orange;
+            var bg = GetNodeOrNull<ColorRect>("Background");
+            if (bg != null)
+            {
+                bg.Color = new Color(1.0f, 0.5f, 0.0f, 0.4f); // semi-transparent orange overlay
+            }
 
             if (_overloadTimer >= 200.0f)
             {
@@ -162,6 +177,11 @@ public partial class GodotEscalator : Node2D
             _speedMultiplier = 1.0f;
             _overloadTimer = Math.Max(0.0f, _overloadTimer - (float)delta * 0.5f);
             SelfModulate = Colors.White;
+            var bg = GetNodeOrNull<ColorRect>("Background");
+            if (bg != null)
+            {
+                bg.Color = new Color(0.0f, 0.0f, 0.0f, 0.0f); // transparent
+            }
         }
 
         UpdateStatusDisplay();
@@ -220,15 +240,15 @@ public partial class GodotEscalator : Node2D
         {
             if (_isBroken)
             {
-                statusLabel.Text = "BROKEN!";
+                statusLabel.Text = "FARE GATES: BROKEN!";
             }
             else if (ActiveRiderCount >= 20)
             {
-                statusLabel.Text = $"OVERLOAD!\nTime: {200.0f - _overloadTimer:F0}s\nRiders: {ActiveRiderCount}";
+                statusLabel.Text = $"FARE GATES: OVERLOAD!\nTime: {200.0f - _overloadTimer:F0}s\nCommuters: {ActiveRiderCount}";
             }
             else
             {
-                statusLabel.Text = $"OK\nRiders: {ActiveRiderCount}";
+                statusLabel.Text = $"FARE GATES: OK\nCommuters: {ActiveRiderCount}";
             }
         }
     }
