@@ -141,11 +141,45 @@ public partial class SimulationManager : Node
 	private int _pendingPassengerSpawns = 0;
 	private float _nextPassengerSpawnDelay = 0.0f;
 	private float _spawnInterval = 0.5f;
+	private AudioStreamPlayer _trainBrakeAudio;
+	private bool _hasPlayedBrakeSound = false;
+
+	private AudioStreamPlayer _crowdNoiseAudio;
+	private AudioStreamPlayer _stationBgAudio;
 
 	public override void _Ready()
 	{
 		Instance = this;
 		PassengerScene = GD.Load<PackedScene>("res://GodotCommuterAgent.tscn");
+		
+		_trainBrakeAudio = new AudioStreamPlayer();
+		_trainBrakeAudio.Stream = GD.Load<AudioStream>("res://train-breaks.mp3");
+		AddChild(_trainBrakeAudio);
+
+		_crowdNoiseAudio = new AudioStreamPlayer();
+		var crowdStream = GD.Load<AudioStream>("res://crowd-noise.mp3");
+		if (crowdStream != null)
+		{
+			crowdStream.Set("loop", true);
+		}
+		_crowdNoiseAudio.Stream = crowdStream;
+		_crowdNoiseAudio.Bus = "Crowd";
+		_crowdNoiseAudio.VolumeDb = -80.0f;
+		_crowdNoiseAudio.Autoplay = true;
+		AddChild(_crowdNoiseAudio);
+
+		_stationBgAudio = new AudioStreamPlayer();
+		var stationBgStream = GD.Load<AudioStream>("res://station-bg.mp3");
+		if (stationBgStream != null)
+		{
+			stationBgStream.Set("loop", true);
+		}
+		_stationBgAudio.Stream = stationBgStream;
+		_stationBgAudio.Bus = "StationBG";
+		_stationBgAudio.VolumeDb = 0.0f;
+		_stationBgAudio.Autoplay = true;
+		AddChild(_stationBgAudio);
+
 		CallDeferred(nameof(UpdateScreenVisibilities));
 	}
 
@@ -165,6 +199,19 @@ public partial class SimulationManager : Node
 		}
 
 		float d = (float)delta;
+		
+		int passengerCount = Passengers.Count;
+		
+		float rageFactor = Mathf.Clamp(AverageRage / 100.0f, 0.0f, 1.0f);
+		float crowdRatio = Mathf.Clamp(passengerCount / 30.0f, 0.0f, 1.0f);
+		float combinedIntensity = Mathf.Clamp((crowdRatio * 0.7f) + (rageFactor * 0.3f), 0.0f, 1.0f);
+
+		float targetCrowdVolume = combinedIntensity > 0.0f ? Mathf.Lerp(-60.0f, -25.0f, combinedIntensity) : -80.0f;
+		_crowdNoiseAudio.VolumeDb = Mathf.Lerp(_crowdNoiseAudio.VolumeDb, targetCrowdVolume, d * 2.0f);
+		
+		float targetStationBgVolume = Mathf.Lerp(0.0f, -20.0f, combinedIntensity);
+		_stationBgAudio.VolumeDb = Mathf.Lerp(_stationBgAudio.VolumeDb, targetStationBgVolume, d * 2.0f);
+
 		UpdateViewportBounds();
 		ResolveSceneReferences();
 
@@ -220,6 +267,7 @@ public partial class SimulationManager : Node
 			{
 				CurrentState = TrainRoundState.Arriving;
 				_arrivalTimer = 0.0f;
+				_hasPlayedBrakeSound = false;
 				OnFlashNotification?.Invoke("⚠️ TRAIN ARRIVING - FINALIZE LINES", Colors.YellowGreen);
 			}
 		}
@@ -237,12 +285,26 @@ public partial class SimulationManager : Node
 				_trainVehicle.Position = _trainOffscreenLeft.Lerp(_trainParkPosition, easedProgress);
 			}
 
+			if (!_hasPlayedBrakeSound && _arrivalTimer >= TrainArrivalSeconds - 1.5f)
+			{
+				_trainBrakeAudio.VolumeDb = 0.0f;
+				_trainBrakeAudio.Play();
+				_hasPlayedBrakeSound = true;
+
+				Tween tween = GetTree().CreateTween();
+				tween.TweenInterval(1.0f); 
+				tween.TweenProperty(_trainBrakeAudio, "volume_db", -80.0f, 0.5f);
+				tween.TweenCallback(Callable.From(_trainBrakeAudio.Stop));
+			}
+
 			ProcessPassengerSpawns(d);
 			UpdateWalkingPassengers();
 			LayoutPassengers();
 
 			if (_arrivalTimer >= TrainArrivalSeconds)
 			{
+				_trainBrakeAudio.Stop();
+
 				float breakRoll = (float)_random.NextDouble();
 				if (breakRoll < AirconBreakChance)
 				{
