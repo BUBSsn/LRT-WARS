@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dprd1p401eb1d"
-path="res://.godot/imported/SCR-20260714-nsct.jpeg-81af53f3e55ca3a63cbfd86de6db6136.ctex"
+uid="uid://c8catuemdbgyv"
+path="res://.godot/imported/How to Play.png-b45e835111761162d81cb56cd42de0d9.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://SCR-20260714-nsct.jpeg"
-dest_files=["res://.godot/imported/SCR-20260714-nsct.jpeg-81af53f3e55ca3a63cbfd86de6db6136.ctex"]
+source_file="res://How to Play.png"
+dest_files=["res://.godot/imported/How to Play.png-b45e835111761162d81cb56cd42de0d9.ctex"]
 
 [params]
 

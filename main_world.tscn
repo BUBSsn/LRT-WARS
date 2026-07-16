@@ -4,8 +4,14 @@
 [ext_resource type="Script" uid="uid://cu0nc1gr4jsl3" path="res://scripts/GameHUD.cs" id="2_uoqbt"]
 [ext_resource type="Texture2D" uid="uid://bbr4pqblm21n3" path="res://icon.svg" id="3_43o5b"]
 [ext_resource type="Texture2D" uid="uid://buhks61rwk33g" path="res://train.png" id="4_3etub"]
+[ext_resource type="Texture2D" uid="uid://dprd1p401eb1d" path="res://SCR-20260714-nsct.jpeg" id="5_8i6ae"]
 [ext_resource type="Texture2D" uid="uid://c18cytd6nap3d" path="res://Untitled design-no-bg.png" id="5_whfra"]
-[ext_resource type="Texture2D" uid="uid://wldstlhha4i3" path="res://platform_background.png" id="6_uue8y"]
+[ext_resource type="Texture2D" uid="uid://r3u745wilpjl" path="res://Main menu.png" id="7_menu"]
+[ext_resource type="Texture2D" uid="uid://bt8livds7nld5" path="res://Play.png" id="8_play"]
+[ext_resource type="Texture2D" uid="uid://c8catuemdbgyv" path="res://How to Play.png" id="9_howtoplay"]
+[ext_resource type="Texture2D" uid="uid://3qlj06phxpud" path="res://Music.png" id="10_music"]
+[ext_resource type="Texture2D" uid="uid://h12ae314dqn" path="res://Vfx.png" id="11_vfx"]
+[ext_resource type="Script" uid="uid://3mujkxmytf7v" path="res://scripts/StartMenu.cs" id="12_startmenu"]
 
 [sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_3etub"]
 texture = ExtResource("3_43o5b")
@@ -783,11 +789,9 @@ tile_set = SubResource("TileSet_agao6")
 tile_set = SubResource("TileSet_43o5b")
 
 [node name="platform_UI_background" type="TextureRect" parent="Platform_Screen/Platform_Tiles" unique_id=935591755]
-offset_left = -1.0
-offset_top = 6.0
-offset_right = 1154.0
-offset_bottom = 679.0
-texture = ExtResource("6_uue8y")
+offset_right = 1152.0
+offset_bottom = 648.0
+texture = ExtResource("5_8i6ae")
 expand_mode = 1
 
 [node name="TrainVehicle" type="Sprite2D" parent="Platform_Screen/Platform_Tiles" unique_id=1354009529]
@@ -799,3 +803,79 @@ texture = ExtResource("5_whfra")
 
 [node name="Train_Tiles" type="TileMapLayer" parent="Train_Screen" unique_id=1207920174]
 tile_set = SubResource("TileSet_3etub")
+
+[node name="StartMenuLayer" type="CanvasLayer" parent="." unique_id=300000000]
+
+[node name="StartMenu" type="Control" parent="StartMenuLayer" unique_id=300000001]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("12_startmenu")
+
+[node name="Background" type="TextureRect" parent="StartMenuLayer/StartMenu" unique_id=300000002]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("7_menu")
+expand_mode = 1
+
+[node name="TopLeftContainer" type="HBoxContainer" parent="StartMenuLayer/StartMenu" unique_id=300000003]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 180.0
+offset_bottom = 90.0
+theme_override_constants/separation = 15
+
+[node name="VfxToggle" type="TextureButton" parent="StartMenuLayer/StartMenu/TopLeftContainer" unique_id=300000004]
+custom_minimum_size = Vector2(50, 50)
+layout_mode = 2
+texture_normal = ExtResource("11_vfx")
+ignore_texture_size = true
+stretch_mode = 5
+
+[node name="MusicToggle" type="TextureButton" parent="StartMenuLayer/StartMenu/TopLeftContainer" unique_id=300000005]
+custom_minimum_size = Vector2(50, 50)
+layout_mode = 2
+texture_normal = ExtResource("10_music")
+ignore_texture_size = true
+stretch_mode = 5
+
+[node name="PlayButton" type="TextureButton" parent="StartMenuLayer/StartMenu" unique_id=300000006]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -163.0
+offset_right = 163.0
+offset_bottom = 110.0
+grow_horizontal = 2
+grow_vertical = 2
+texture_normal = ExtResource("8_play")
+ignore_texture_size = true
+stretch_mode = 5
+
+[node name="HowToPlayButton" type="TextureButton" parent="StartMenuLayer/StartMenu" unique_id=300000007]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -123.0
+offset_top = 110.0
+offset_right = 123.0
+offset_bottom = 170.0
+grow_horizontal = 2
+grow_vertical = 2
+texture_normal = ExtResource("9_howtoplay")
+ignore_texture_size = true
+stretch_mode = 5

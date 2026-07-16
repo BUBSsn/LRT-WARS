@@ -21,6 +21,7 @@ public enum TrainRoundState
 public partial class SimulationManager : Node
 {
 	public static SimulationManager Instance { get; private set; }
+	public bool IsGameActive { get; set; } = false;
 
 	private string _currentGameTime = "05:30 AM";
 	private int _currentWaveCount = 1;
@@ -144,12 +145,24 @@ public partial class SimulationManager : Node
 	{
 		Instance = this;
 		PassengerScene = GD.Load<PackedScene>("res://GodotCommuterAgent.tscn");
-		CallDeferred(nameof(BeginFirstRound));
 		CallDeferred(nameof(UpdateScreenVisibilities));
+	}
+
+	public void StartGameFromMenu()
+	{
+		IsGameActive = true;
+		ActivePerspective = Perspective.PLATFORM;
+		BeginFirstRound();
+		UpdateScreenVisibilities();
 	}
 
 	public override void _Process(double delta)
 	{
+		if (!IsGameActive)
+		{
+			return;
+		}
+
 		float d = (float)delta;
 		UpdateViewportBounds();
 		ResolveSceneReferences();
@@ -1630,6 +1643,14 @@ public partial class SimulationManager : Node
 		Node2D concScreen = ConcourseScreen ?? _concourseScreen;
 		Node2D platScreen = PlatformScreen ?? _platformScreen;
 		Node2D trnScreen = TrainScreen ?? _trainScreen;
+
+		if (!IsGameActive)
+		{
+			if (concScreen != null) concScreen.Visible = false;
+			if (platScreen != null) platScreen.Visible = false;
+			if (trnScreen != null) trnScreen.Visible = false;
+			return;
+		}
 
 		if (concScreen != null) concScreen.Visible = (_activePerspective == Perspective.UNDER_STATION);
 		if (platScreen != null) platScreen.Visible = (_activePerspective == Perspective.PLATFORM);
